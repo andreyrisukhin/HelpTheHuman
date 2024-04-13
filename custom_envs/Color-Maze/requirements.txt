@@ -1,1 +1,2 @@
 pettingzoo
+# pip install "ray[rllib]" torch
