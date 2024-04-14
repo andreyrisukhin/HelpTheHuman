@@ -94,8 +94,8 @@ if __name__ == "__main__":
         .rl_module(
             rl_module_spec=MultiAgentRLModuleSpec(
                 module_specs={
-                    "p0_leader": SingleAgentRLModuleSpec(),
-                    "p1_follower": SingleAgentRLModuleSpec(),
+                    "leader": SingleAgentRLModuleSpec(),
+                    "follower": SingleAgentRLModuleSpec(),
                 }
             )
         )
