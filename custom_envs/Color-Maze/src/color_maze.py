@@ -142,16 +142,16 @@ class ColorMaze(ParallelEnv):
         observation = self._convert_to_observation()
         observations = {
             # Leader starts in bottom left, so can't go down or left
-            'leader': {'observation': observation, 'action_mask': np.array([1, 0, 0, 1])},
+            'leader': {'observation': observation, 'action_mask': np.array([1, 0, 0, 1], dtype=np.int32)},
             # Follower starts in top right, so can't go up or right
-            'follower': {'observation': observation, 'action_mask': np.array([0, 1, 1, 0])}
+            'follower': {'observation': observation, 'action_mask': np.array([0, 1, 1, 0], dtype=np.int32)}
         }
 
         # Get dummy info, necessary for proper parallel_to_aec conversion
         infos = {a: {} for a in self.agents}
         return observations, infos
 
-    def _consume_and_spawn_block(self, color_idx, x, y):
+    def _consume_and_spawn_block(self, color_idx, x, y) -> None:
         self.blocks[color_idx, x, y] = 0
         # Find a different cell with value 0 and set it to 1
         # Also make sure no other color is present there

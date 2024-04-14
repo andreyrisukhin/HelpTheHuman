@@ -22,6 +22,11 @@ from ray.rllib.utils.test_utils import (
 )
 from ray.tune.registry import register_env, get_trainable_cls
 
+# Below and modified config from experimental api, recommended for multiagent PPO: https://docs.ray.io/en/latest/rllib/rllib-new-api-stack.html
+from ray.rllib.algorithms.ppo import PPOConfig
+from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
+    # Example had their env, we use ours.
+
 parser = add_rllib_example_script_args(
     default_iters=50,
     default_timesteps=200000,
@@ -36,17 +41,10 @@ parser.add_argument(
 
 register_env(
     "color_maze",
-    # lambda config: ParallelPettingZooEnv(
-    #     color_maze.parallel_env(),
-    #     split_state=lambda obs: obs,
-    #     split_state_fn_args={},
-    #     obs_space_preprocessor=FlattenedObservations(),
-    #     action_space_preprocessor=None,
-    #     auto_reset_done=True,
-    #     env_config={},
-    # ),
     lambda _: ParallelPettingZooEnv(color_maze.ColorMaze()),
 )
+
+
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -54,18 +52,20 @@ if __name__ == "__main__":
     assert args.num_agents == 2, "Must set --num-agents=2, this script only supports 2 agents"
     assert (
         args.enable_new_api_stack
-    ), "Must set --enable-new-api-stack when running this script" # TODO why?
+    ), "Must set --enable-new-api-stack when running this script" # New api stack supports multi-agent PPO.
 
+    '''
     base_config = (
         get_trainable_cls(args.algo) # PPO
         .get_default_config()
         .environment("color_maze")
         .rollouts(
-            env_to_module_connector=lambda env: (
-                AddObservationsFromEpisodesToBatch(),
-                FlattenObservations(multi_agent=True),
-                WriteObservationsToEpisodes(),
-            ),
+            env_runner_cls=MultiAgentEnvRunner,
+            # env_to_module_connector=lambda env: (
+            #     AddObservationsFromEpisodesToBatch(),
+            #     FlattenObservations(multi_agent=True),
+            #     WriteObservationsToEpisodes(),
+            # ),
         )
         .multi_agent(
             policies={"leader", "follower"},
@@ -79,17 +79,35 @@ if __name__ == "__main__":
                 "lstm_cell_size": 256,
                 "max_seq_len": 15, # Where do these come from?
                 "vf_share_layers": True, # What does this do?
+                "uses_new_env_runners": True,
             },
             vf_loss_coeff=0.005,
         )
-        .rl_module(
-            rl_module_spec=MultiAgentRLModuleSpec(
-                module_specs={
-                    "leader": SingleAgentRLModuleSpec(),
-                    "follower": SingleAgentRLModuleSpec(),
-                }
-            )
+        # .rl_module(
+        #     rl_module_spec=MultiAgentRLModuleSpec(
+        #         module_specs={
+        #             "leader": SingleAgentRLModuleSpec(),
+        #             "follower": SingleAgentRLModuleSpec(),
+        #         }
+        #     )
+        # )
+        .experimental(_enable_new_api_stack=True)
+    )
+    '''
+    config = (
+        PPOConfig().environment(color_maze.ColorMaze)
+        .experimental(_enable_new_api_stack=True)
+        .rollouts(env_runner_cls=MultiAgentEnvRunner)
+        .resources(
+            num_learner_workers=1, # Set this to the number of GPUs 
+            num_gpus_per_learner_worker=1, # 1 often, if at least one GPU
+            num_cpus_for_local_worker=1,
+        )
+        .training(model={"uses_new_env_runners": True})
+        .multi_agent(
+            policies={"leader", "follower"},
+            policy_mapping_fn=lambda agent_id, episode: agent_id,
         )
     )
 
-    run_rllib_example_script_experiment(base_config, args)
+    run_rllib_example_script_experiment(config, args)
