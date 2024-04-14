@@ -52,8 +52,8 @@ class ColorMaze(ParallelEnv):
         - blue blocks [(x,y), (x,y), ...]
         - timestep
 
-        Spaces are defined in the action_space and observation_space methods.
-        If not overridden, spaces are inferred from self.observation_space and self.action_space.
+        Spaces are defined in the action_space and observation_spaces methods.
+        If not overridden, spaces are inferred from self.observation_spaces and self.action_space.
         """
 
         self.possible_agents = ["leader", "follower"]
@@ -72,9 +72,9 @@ class ColorMaze(ParallelEnv):
         self._GREEN_ID = 2
         self._LEADER_ID = 3
         self._FOLLOWER_ID = 4
-        self._observation_space = Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value))
+        self._observation_spaces = Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value))
 
-        self.observation_space = lambda agent: self._observation_space
+        self.observation_spaces = lambda agent: self._observation_spaces
         self.action_space = lambda agent: self._action_space
 
     def _convert_to_observation(self):
