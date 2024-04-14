@@ -30,6 +30,7 @@ class Boundary(Enum):
     y2 = 5
 
 
+
 class ColorMaze(ParallelEnv):
     """The metadata holds environment constants.
     
