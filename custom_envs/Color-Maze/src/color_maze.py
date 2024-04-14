@@ -77,7 +77,7 @@ class ColorMaze(ParallelEnv):
         self._FOLLOWER_ID = 4
         self._observation_space = Dict({
             "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary), dtype=np.int32),
-            "action_mask": MultiDiscrete(4 * [2], dtype=np.int32)
+            "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
         })
 
         self.observation_spaces = {
@@ -230,7 +230,7 @@ class ColorMaze(ParallelEnv):
                     if self.blocks[non_reward_block_idx, x, y]:
                         shared_reward = -1
                         self._consume_and_spawn_block(non_reward_block_idx, x, y)
-                        break;
+                        break
 
         rewards = {'leader': shared_reward, 'follower': shared_reward}
 

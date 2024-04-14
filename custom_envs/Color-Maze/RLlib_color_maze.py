@@ -68,17 +68,8 @@ if __name__ == "__main__":
             ),
         )
         .multi_agent(
-            # policies={"p0_leader", "p1_follow"},
-            # policy_mapping_fn=lambda agent_id, episode: re.sub("^player_", "p", agent_id),
-
             policies={"leader", "follower"},
             policy_mapping_fn = lambda agent_id, episode: "leader" if agent_id == "leader" else "follower",
-
-
-            # How does this policy mapping work? Look at rockpaperscissors and see how they label agents. 
-            # TODO we never specify that p0_leader applies to the leader controller, and p1_follower to the follower controller.
-
-
         ) # Shouldn't we add .framework("torch"), .evaluation() here?
         .training(
             model={
