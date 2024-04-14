@@ -10,7 +10,7 @@ from src import color_maze # The environment to train on
 # run `pip install "ray[rllib]" torch` to install RLlib for pytorch
 from ray.rllib.connectors.env_to_module import (
     AddObservationsFromEpisodesToBatch,
-    FlattenedObservations, # TODO get this imported, fix this
+    FlattenObservations,
     WriteObservationsToEpisodes,
 )
 from ray.rllib.core.rl_module.marl_module import MultiAgentRLModuleSpec
@@ -70,7 +70,7 @@ if __name__ == "__main__":
         .multi_agent(
             policies={"p0_leader", "p1_follow"},
             policy_mapping_fn=lambda agent_id, episode: re.sub("^player_", "p", agent_id),
-        )
+        ) # Shouldn't we add .framework("torch"), .evaluation() here?
         .training(
             model={
                 "use_lstm": args.use_lstm,
