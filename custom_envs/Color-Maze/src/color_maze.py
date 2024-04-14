@@ -113,6 +113,9 @@ class ColorMaze(ParallelEnv):
         observation = red_vals + blue_vals + green_vals
         observation[self.leader_x, self.leader_y] = self._LEADER_ID
         observation[self.follower_x, self.follower_y] = self._FOLLOWER_ID
+        # Ensure that observation is a 2d array
+        assert observation.ndim == 2
+        assert observation.shape == (Boundary.x2.value +1 - Boundary.x1.value, Boundary.y2.value +1 - Boundary.y1.value)
         return observation
 
     def reset(self, seed=None, options=None):
