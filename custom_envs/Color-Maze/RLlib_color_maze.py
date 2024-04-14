@@ -69,7 +69,7 @@ if __name__ == "__main__":
         )
         .multi_agent(
             policies={"leader", "follower"},
-            policy_mapping_fn = lambda agent_id, episode: "leader" if agent_id == "leader" else "follower",
+            policy_mapping_fn = lambda agent_id, episode: agent_id,
         ) # Shouldn't we add .framework("torch"), .evaluation() here?
         .training(
             model={
@@ -85,8 +85,8 @@ if __name__ == "__main__":
         .rl_module(
             rl_module_spec=MultiAgentRLModuleSpec(
                 module_specs={
-                    "p0_leader": SingleAgentRLModuleSpec(),
-                    "p1_follower": SingleAgentRLModuleSpec(),
+                    "leader": SingleAgentRLModuleSpec(),
+                    "follower": SingleAgentRLModuleSpec(),
                 }
             )
         )
