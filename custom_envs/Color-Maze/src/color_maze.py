@@ -120,7 +120,7 @@ class ColorMaze(ParallelEnv):
         assert observation.shape == (xBoundary, yBoundary)
         return observation.astype(np.int32)
 
-    def reset(self, seed=None, options=None):
+    def reset(self, *, seed=None, options=None):
         """Reset the environment to a starting point.
         
         """
@@ -189,18 +189,14 @@ class ColorMaze(ParallelEnv):
             Always call _move for the leader first in a given timestep
             """
             new_x, new_y = x, y
-            if action == Moves.UP.value:
+            if action == Moves.UP.value and y < Boundary.y2.value:
                 new_y += 1
-                assert new_y <= Boundary.y2.value, "Cannot move off the board"
-            elif action == Moves.DOWN.value:
+            elif action == Moves.DOWN.value and y > Boundary.y1.value:
                 new_y -= 1
-                assert new_y >= Boundary.y1.value, "Cannot move off the board"
-            elif action == Moves.LEFT.value:
+            elif action == Moves.LEFT.value and x > Boundary.x1.value:
                 new_x -= 1
-                assert new_x >= Boundary.x1.value, "Cannot move off the board"
-            elif action == Moves.RIGHT.value:
+            elif action == Moves.RIGHT.value and x < Boundary.x2.value:
                 new_x += 1
-                assert new_x <= Boundary.x2.value, "Cannot move off the board"
     
             if (new_x, new_y) == (self.leader_x, self.leader_y):
                 return x, y
@@ -249,7 +245,7 @@ class ColorMaze(ParallelEnv):
 
 
         # Formatting by agent for the return types
-        terminations = {a: termination for a in self.agents}
+        terminateds = {a: termination for a in self.agents}
 
         if termination:
             self.agents = []
@@ -259,7 +255,8 @@ class ColorMaze(ParallelEnv):
             'leader': {'observation': observation, 'action_mask': leader_action_mask},
             'follower': {'observation': observation, 'action_mask': follower_action_mask}
         }
-        return observations, rewards, terminations, terminations, infos
+        truncateds = terminateds
+        return observations, rewards, terminateds, truncateds, infos
 
     def render(self):
         """Render the environment."""
