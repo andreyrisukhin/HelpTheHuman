@@ -117,7 +117,7 @@ if __name__ == "__main__":
     # observation_size = env.observation_space(env.possible_agents[0]).shape
 
     env = color_maze.ColorMaze()
-    num_agents = len(env.agents)
+    num_agents = 2 #len(env.agents)
     num_actions = env.action_spaces['leader']
     observation_size = env.observation_spaces['leader'].shape
 
