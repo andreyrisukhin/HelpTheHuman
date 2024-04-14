@@ -12,7 +12,7 @@ import random
 from copy import copy
 
 import numpy as np
-from gymnasium.spaces import Discrete, MultiDiscrete, Box, Space
+from gymnasium.spaces import Discrete, MultiDiscrete, Box, Space, Dict
 
 from pettingzoo import ParallelEnv
 
@@ -73,10 +73,21 @@ class ColorMaze(ParallelEnv):
         self._GREEN_ID = 2
         self._LEADER_ID = 3
         self._FOLLOWER_ID = 4
-        self._observation_spaces = Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value))
+        self._observation_space = Dict({
+            "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value)),
+            "action_mask": MultiDiscrete(4 * [2])
+        })
 
-        self.observation_spaces = lambda agent: self._observation_spaces
-        # Should there be a conver_to_observation() here? <- comment written while debugging RLlib script.
+        self.observation_spaces = {
+            agent: self._observation_space
+            for agent in self.possible_agents
+        }
+        self.action_spaces = {
+            agent: self._action_space
+            for agent in self.possible_agents
+        }
+
+        self.observation_space = lambda agent: self._observation_space
         self.action_space = lambda agent: self._action_space
 
     def _convert_to_observation(self):

@@ -8,6 +8,7 @@ from src.manual_policy import ManualPolicy
 if __name__ == "__main__":
     os.system('cls' if os.name == 'nt' else 'clear')
     env = ColorMaze()
+    parallel_api_test(env)
     observations, _ = env.reset(seed=42)
     manual_policy_1 = ManualPolicy(env, agent_id=0)
     manual_policy_2 = ManualPolicy(env, agent_id=1)
