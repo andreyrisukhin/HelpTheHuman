@@ -74,8 +74,8 @@ class ColorMaze(ParallelEnv):
         self._LEADER_ID = 3
         self._FOLLOWER_ID = 4
         self._observation_space = Dict({
-            "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value)),
-            "action_mask": MultiDiscrete(4 * [2])
+            "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value + 1, Boundary.y2.value - Boundary.y1.value + 1), dtype=np.int32),
+            "action_mask": MultiDiscrete(4 * [2], dtype=np.int32)
         })
 
         self.observation_spaces = {
@@ -113,7 +113,7 @@ class ColorMaze(ParallelEnv):
         observation = red_vals + blue_vals + green_vals
         observation[self.leader_x, self.leader_y] = self._LEADER_ID
         observation[self.follower_x, self.follower_y] = self._FOLLOWER_ID
-        return observation
+        return observation.astype(np.int32)
 
     def reset(self, seed=None, options=None):
         """Reset the environment to a starting point.
