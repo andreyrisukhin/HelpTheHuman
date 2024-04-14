@@ -28,6 +28,8 @@ class Boundary(Enum):
     y1 = 0
     x2 = 5
     y2 = 5
+xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
+yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 
 # parallel_env = parallel_wrapper_fn(env) # RockPaperScissors had this, referenced by RLlib example.
 # We think it's unneeded because ColorMaze extends ParallelEnv.
@@ -63,7 +65,7 @@ class ColorMaze(ParallelEnv):
         self.follower_x = None
         self.follower_y = None
         # Inv: for all (x, y) coordinates, no two slices are non-zero
-        self.blocks = np.zeros((3, Boundary.x2.value + 1 - Boundary.x1.value, Boundary.y2.value + 1 - Boundary.y1.value))
+        self.blocks = np.zeros((3, xBoundary, yBoundary))
         self.timestep = 0
 
         self._action_space = Discrete(4)
@@ -74,7 +76,7 @@ class ColorMaze(ParallelEnv):
         self._LEADER_ID = 3
         self._FOLLOWER_ID = 4
         self._observation_space = Dict({
-            "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value)),
+            "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary)),
             "action_mask": MultiDiscrete(4 * [2])
         })
 
@@ -115,7 +117,7 @@ class ColorMaze(ParallelEnv):
         observation[self.follower_x, self.follower_y] = self._FOLLOWER_ID
         # Ensure that observation is a 2d array
         assert observation.ndim == 2
-        assert observation.shape == (Boundary.x2.value +1 - Boundary.x1.value, Boundary.y2.value +1 - Boundary.y1.value)
+        assert observation.shape == (xBoundary, yBoundary)
         return observation
 
     def reset(self, seed=None, options=None):
