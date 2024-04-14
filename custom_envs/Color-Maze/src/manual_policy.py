@@ -1,7 +1,3 @@
-from pynput import keyboard
-import time
-
-
 class ManualPolicy:
     """
     Leader uses wasd, Follower uses ijkl
