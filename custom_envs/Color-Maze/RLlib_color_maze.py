@@ -72,7 +72,7 @@ if __name__ == "__main__":
             # policy_mapping_fn=lambda agent_id, episode: re.sub("^player_", "p", agent_id),
 
             policies={"leader", "follower"},
-            policy_mapping_fn = lambda agent_id, episode: "leader" if agent_id == "leader" else "follower",
+            policy_mapping_fn = lambda agent_id, episode: agent_id,
 
 
             # How does this policy mapping work? Look at rockpaperscissors and see how they label agents. 
