@@ -29,7 +29,8 @@ class Boundary(Enum):
     x2 = 5
     y2 = 5
 
-
+# parallel_env = parallel_wrapper_fn(env) # RockPaperScissors had this, referenced by RLlib example.
+# We think it's unneeded because ColorMaze extends ParallelEnv.
 
 class ColorMaze(ParallelEnv):
     """The metadata holds environment constants.
@@ -75,6 +76,7 @@ class ColorMaze(ParallelEnv):
         self._observation_spaces = Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(Boundary.x2.value - Boundary.x1.value, Boundary.y2.value - Boundary.y1.value))
 
         self.observation_spaces = lambda agent: self._observation_spaces
+        # Should there be a conver_to_observation() here? <- comment written while debugging RLlib script.
         self.action_space = lambda agent: self._action_space
 
     def _convert_to_observation(self):
