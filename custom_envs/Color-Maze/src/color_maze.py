@@ -8,8 +8,8 @@ Movement: leader and follower share moveset, one grid up, down, left, right.
 """
 
 import functools
-import random 
-from copy import copy 
+import random
+from copy import copy
 
 import numpy as np
 from gymnasium.spaces import Discrete, MultiDiscrete, Box, Space
