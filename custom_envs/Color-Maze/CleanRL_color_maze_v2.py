@@ -79,7 +79,7 @@ def ppo_update(
                 _, new_value = model(obs)
                 advantage = reward + gamma * new_value * (1 - int(done)) - value
                 new_log_prob = model(obs)[0]
-                
+
                 # TODO check the loss calculation details here
                 ratio = (new_log_prob - old_log_prob).exp()
                 surr1 = ratio * advantage.detach()
