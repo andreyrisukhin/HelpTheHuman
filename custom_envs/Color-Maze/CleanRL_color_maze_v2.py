@@ -8,6 +8,17 @@ from typing import Any, Mapping
 from src import color_maze
 
 
+"""
+TODOs
+
+What kind of network architectures?
+- Emergent Social Learning via Multi-agent Reinforcement Learning paper by Kamal for gridworld environments (in email)
+- add wandb logging
+- visualize agent actions
+- lab expectations doc / tweet thread
+
+
+"""
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space):
         super().__init__()
