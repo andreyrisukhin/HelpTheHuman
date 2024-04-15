@@ -20,26 +20,26 @@ import torch.optim as optim
 from supersuit import color_reduction_v0, frame_stack_v1, resize_v1
 from torch.distributions.categorical import Categorical
 
-# from pettingzoo.butterfly import pistonball_v6
+from pettingzoo.butterfly import pistonball_v6
 from src import color_maze
 
 
 class Agent(nn.Module):
-    def __init__(self, num_actions):
+    def __init__(self, num_actions: int, frame_size: int, num_channels: int):
         super().__init__()
 
         self.network = nn.Sequential(
-            self._layer_init(nn.Conv2d(4, 32, 3, padding=1)),
+            self._layer_init(nn.Conv2d(num_channels, 32, 3, padding=1)),
             nn.MaxPool2d(2),
             nn.ReLU(),
-            self._layer_init(nn.Conv2d(32, 64, 3, padding=1)),
+            self._layer_init(nn.Conv2d(32, frame_size, 3, padding=1)),
             nn.MaxPool2d(2),
             nn.ReLU(),
-            self._layer_init(nn.Conv2d(64, 128, 3, padding=1)),
-            nn.MaxPool2d(2),
+            self._layer_init(nn.Conv2d(frame_size, 128, 3, padding=1)),
+            nn.MaxPool2d(1),
             nn.ReLU(),
             nn.Flatten(),
-            self._layer_init(nn.Linear(128 * 8 * 8, 512)),
+            self._layer_init(nn.Linear(128, 512)),
             nn.ReLU(),
         )
         self.actor = self._layer_init(nn.Linear(512, num_actions), std=0.01)
@@ -100,14 +100,14 @@ if __name__ == "__main__":
     clip_coef = 0.1
     gamma = 0.99
     batch_size = 32
-    stack_size = 4
-    frame_size = (64, 64)
-    max_cycles = 125
-    total_episodes = 2
+    stack_size = 1
+    frame_size = (6, 6)
+    max_cycles = 100
+    total_episodes = 100
 
     """ ENV SETUP """
     # env = pistonball_v6.parallel_env(
-    #     render_mode="rgb_array", continuous=False, max_cycles=max_cycles
+    #      render_mode="rgb_array", continuous=False, max_cycles=max_cycles
     # )
     # env = color_reduction_v0(env)
     # env = resize_v1(env, frame_size[0], frame_size[1])
@@ -117,12 +117,12 @@ if __name__ == "__main__":
     # observation_size = env.observation_space(env.possible_agents[0]).shape
 
     env = color_maze.ColorMaze()
-    num_agents = 2 #len(env.agents)
-    num_actions = env.action_spaces['leader']
+    num_agents = len(env.possible_agents)
+    num_actions = env.action_spaces['leader'].n
     observation_size = env.observation_spaces['leader'].shape
 
     """ LEARNER SETUP """
-    agent = Agent(num_actions=num_actions).to(device)
+    agent = Agent(num_actions=num_actions, frame_size=frame_size[0], num_channels=env._n_channels).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=0.001, eps=1e-5)
 
     """ ALGO LOGIC: EPISODE STORAGE"""

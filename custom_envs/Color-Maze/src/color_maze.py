@@ -131,6 +131,7 @@ class ColorMaze(ParallelEnv):
 
         self.agents = copy(self.possible_agents)
         self.timestep = 0
+        # TODO randomize initial locations
         self.leader_x = Boundary.x1.value
         self.leader_y = Boundary.y1.value
         self.follower_x = Boundary.x2.value
