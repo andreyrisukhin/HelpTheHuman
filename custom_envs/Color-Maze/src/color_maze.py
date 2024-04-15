@@ -67,6 +67,7 @@ class ColorMaze(ParallelEnv):
         # Inv: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((3, xBoundary, yBoundary))
         self.timestep = 0
+        self._MAX_TIMESTEPS = 1000
 
         self._action_space = Discrete(4)
 
@@ -75,10 +76,12 @@ class ColorMaze(ParallelEnv):
         self._GREEN_ID = 2
         self._LEADER_ID = 3
         self._FOLLOWER_ID = 4
-        self._observation_space = Dict({
-            "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary), dtype=np.int32),
-            "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
-        })
+        # self._observation_space = Dict({
+            # "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary), dtype=np.int32),
+            # "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
+        # })
+        self._n_channels = 1  # unused at the moment
+        self._observation_space = Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary), dtype=np.int32)
 
         self.observation_spaces = {
             agent: self._observation_space
@@ -118,6 +121,7 @@ class ColorMaze(ParallelEnv):
         # Ensure that observation is a 2d array
         assert observation.ndim == 2
         assert observation.shape == (xBoundary, yBoundary)
+        # observation = observation.reshape((xBoundary, yBoundary, self._n_channels))
         return observation.astype(np.int32)
 
     def reset(self, *, seed=None, options=None):
@@ -132,6 +136,7 @@ class ColorMaze(ParallelEnv):
         self.follower_x = Boundary.x2.value
         self.follower_y = Boundary.y2.value
 
+        self.blocks = np.zeros((3, xBoundary, yBoundary))
         self._consume_and_spawn_block(self._RED_ID, 0, 0)
         self._consume_and_spawn_block(self._GREEN_ID, 0, 0)
         self._consume_and_spawn_block(self._BLUE_ID, 0, 0)
@@ -140,11 +145,15 @@ class ColorMaze(ParallelEnv):
         self.goal_block = self._RED_ID  # TODO to introduce non-stationarity, change this at some point
 
         observation = self._convert_to_observation()
+        # observations = {
+            # # Leader starts in bottom left, so can't go down or left
+            # 'leader': {'observation': observation, 'action_mask': np.array([1, 0, 0, 1], dtype=np.int32)},
+            # # Follower starts in top right, so can't go up or right
+            # 'follower': {'observation': observation, 'action_mask': np.array([0, 1, 1, 0], dtype=np.int32)}
+        # }
         observations = {
-            # Leader starts in bottom left, so can't go down or left
-            'leader': {'observation': observation, 'action_mask': np.array([1, 0, 0, 1], dtype=np.int32)},
-            # Follower starts in top right, so can't go up or right
-            'follower': {'observation': observation, 'action_mask': np.array([0, 1, 1, 0], dtype=np.int32)}
+            agent: observation
+            for agent in self.agents
         }
 
         # Get dummy info, necessary for proper parallel_to_aec conversion
@@ -236,7 +245,7 @@ class ColorMaze(ParallelEnv):
 
         # Check termination conditions
         termination = False
-        if self.timestep > 100:
+        if self.timestep > self._MAX_TIMESTEPS:
             termination = True
         self.timestep += 1
 
@@ -251,9 +260,13 @@ class ColorMaze(ParallelEnv):
             self.agents = []
 
         observation = self._convert_to_observation()
+        # observations = {
+            # 'leader': {'observation': observation, 'action_mask': leader_action_mask},
+            # 'follower': {'observation': observation, 'action_mask': follower_action_mask}
+        # }
         observations = {
-            'leader': {'observation': observation, 'action_mask': leader_action_mask},
-            'follower': {'observation': observation, 'action_mask': follower_action_mask}
+            agent: observation
+            for agent in self.agents
         }
         truncateds = terminateds
         return observations, rewards, terminateds, truncateds, infos
