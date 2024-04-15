@@ -43,6 +43,7 @@ def collect_data(
             with torch.no_grad():
                 logits, value = model(obs_tensor)
                 # TODO figure out why logits are sometimes NaN which causes an error here
+                # AR: inconsistent, epoch 4-7 has a NaN and it breaks. 
                 dist = Categorical(logits=logits)
                 action = dist.sample()
 
@@ -154,4 +155,4 @@ for epoch in range(num_epochs):
         pass
 
     losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
-    print(losses)
+    print(f"ep {epoch}: {losses}")
