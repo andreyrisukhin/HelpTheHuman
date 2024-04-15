@@ -43,7 +43,7 @@ def collect_data(
             with torch.no_grad():
                 logits, value = model(obs_tensor)
                 # TODO figure out why logits are sometimes NaN which causes an error here
-                # AR: seems like every 5th epoch, 1-4 are no problem. 
+                # AR: inconsistent, epoch 4-7 has a NaN and it breaks. 
                 dist = Categorical(logits=logits)
                 action = dist.sample()
 
@@ -92,12 +92,6 @@ def ppo_update(
                 optimizer.zero_grad()
                 (policy_loss + value_loss).backward()
                 optimizer.step()
-    print(f"         | Epoch: {epoch}")
-    print(f"         | data: {len(data)}")
-    for agent in acc_losses:
-        print(f"         | losses: {acc_losses[agent]}")
-        print(f"         | Agent: {agent}") # This will return tensor of nan, with invalid values
-        # print(f"AR Debug | Agent: {agent} Epoch: {epoch} losses: {acc_losses[agent]} len data: {len(data)}")
     return {agent: acc_losses[agent] / (epochs * len(data)) for agent in acc_losses}
 
 
@@ -129,4 +123,4 @@ for epoch in range(num_epochs):
         pass
 
     losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
-    print(losses)
+    print(f"ep {epoch}: {losses}")
