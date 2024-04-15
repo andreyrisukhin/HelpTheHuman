@@ -5,6 +5,13 @@ from src.color_maze import ColorMaze
 from src.manual_policy import ManualPolicy
 
 
+'''
+Things to debug:
+> Follower and Leader have two moves to each side, change print for the user
+> Grid is 6x11
+> Make sure leader and follower are spawned first, then blocks. 
+'''
+
 if __name__ == "__main__":
     os.system('cls' if os.name == 'nt' else 'clear')
     env = ColorMaze()
@@ -25,6 +32,6 @@ if __name__ == "__main__":
 
         os.system('cls' if os.name == 'nt' else 'clear')
         env.render()
-        print(f'Score: {score}')
+        print(f'Score: {score} | Goal: {env.goal_block}')
 
     env.close()

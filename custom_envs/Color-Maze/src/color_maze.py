@@ -30,6 +30,12 @@ class Boundary(Enum):
     y2 = 5
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
+class IDs(Enum):
+    RED = 0
+    BLUE = 1
+    GREEN = 2
+    LEADER = 3
+    FOLLOWER = 4
 
 # parallel_env = parallel_wrapper_fn(env) # RockPaperScissors had this, referenced by RLlib example.
 # We think it's unneeded because ColorMaze extends ParallelEnv.
@@ -68,20 +74,13 @@ class ColorMaze(ParallelEnv):
         self.blocks = np.zeros((3, xBoundary, yBoundary))
         self.timestep = 0
         self._MAX_TIMESTEPS = 1000
-
         self._action_space = Discrete(4)
-
-        self._RED_ID = 0
-        self._BLUE_ID = 1
-        self._GREEN_ID = 2
-        self._LEADER_ID = 3
-        self._FOLLOWER_ID = 4
         # self._observation_space = Dict({
-            # "observation": Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary), dtype=np.int32),
+            # "observation": Box(low=self._RED_ID, high=IDs.FOLLOWER.value, shape=(xBoundary, yBoundary), dtype=np.int32),
             # "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
         # })
         self._n_channels = 1  # unused at the moment
-        self._observation_space = Box(low=self._RED_ID, high=self._FOLLOWER_ID, shape=(xBoundary, yBoundary), dtype=np.int32)
+        self._observation_space = Box(low=0, high=len(IDs), shape=(xBoundary, yBoundary), dtype=np.int32)
 
         self.observation_spaces = {
             agent: self._observation_space
@@ -112,12 +111,12 @@ class ColorMaze(ParallelEnv):
         Returns:
             numpy.ndarray: The 2D observation array.
         """
-        red_vals = np.where(self.blocks[self._RED_ID], self._RED_ID, 0)
-        blue_vals = np.where(self.blocks[self._BLUE_ID], self._BLUE_ID, 0)
-        green_vals = np.where(self.blocks[self._GREEN_ID], self._GREEN_ID, 0)
+        red_vals = np.where(self.blocks[IDs.RED.value], IDs.RED.value, 0)
+        blue_vals = np.where(self.blocks[IDs.BLUE.value], IDs.BLUE.value, 0)
+        green_vals = np.where(self.blocks[IDs.GREEN.value], IDs.GREEN.value, 0)
         observation = red_vals + blue_vals + green_vals
-        observation[self.leader_x, self.leader_y] = self._LEADER_ID
-        observation[self.follower_x, self.follower_y] = self._FOLLOWER_ID
+        observation[self.leader_x, self.leader_y] = IDs.LEADER.value
+        observation[self.follower_x, self.follower_y] = IDs.FOLLOWER.value
         # Ensure that observation is a 2d array
         assert observation.ndim == 2
         assert observation.shape == (xBoundary, yBoundary)
@@ -137,12 +136,11 @@ class ColorMaze(ParallelEnv):
         self.follower_y = Boundary.y2.value
 
         self.blocks = np.zeros((3, xBoundary, yBoundary))
-        self._consume_and_spawn_block(self._RED_ID, 0, 0)
-        self._consume_and_spawn_block(self._GREEN_ID, 0, 0)
-        self._consume_and_spawn_block(self._BLUE_ID, 0, 0)
+        self._consume_and_spawn_block(IDs.RED.value, 0, 0)
+        self._consume_and_spawn_block(IDs.GREEN.value, 0, 0)
+        self._consume_and_spawn_block(IDs.BLUE.value, 0, 0)
 
-        self.block_colors = ['red', 'green', 'blue']
-        self.goal_block = self._RED_ID  # TODO to introduce non-stationarity, change this at some point
+        self.goal_block = IDs.RED  # TODO to introduce non-stationarity, change this at some point
 
         observation = self._convert_to_observation()
         # observations = {
@@ -180,7 +178,7 @@ class ColorMaze(ParallelEnv):
         """
         Takes an action for current agent (specified by agent selection)
 
-        Update:
+        Update the following:
         - timestep
         - infos
         - rewards
@@ -231,11 +229,11 @@ class ColorMaze(ParallelEnv):
         # Give rewards
         shared_reward = 0
         for agent, x, y in zip(["leader", "follower"], [self.leader_x, self.follower_x], [self.leader_y, self.follower_y]):
-            if self.blocks[self.goal_block, x, y]:
+            if self.blocks[self.goal_block.value, x, y]:
                 shared_reward = 1
-                self._consume_and_spawn_block(self.goal_block, x, y)
+                self._consume_and_spawn_block(self.goal_block.value, x, y)
             else:
-                for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block]:
+                for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
                         shared_reward = -1
                         self._consume_and_spawn_block(non_reward_block_idx, x, y)
@@ -276,11 +274,11 @@ class ColorMaze(ParallelEnv):
         grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), " ")
         grid[self.leader_x, self.leader_y] = "L"
         grid[self.follower_x, self.follower_y] = "F"
-        for x, y in np.argwhere(self.blocks[self._RED_ID]):
+        for x, y in np.argwhere(self.blocks[IDs.RED.value]):
             grid[x, y] = "R"
-        for x, y in np.argwhere(self.blocks[self._GREEN_ID]):
+        for x, y in np.argwhere(self.blocks[IDs.GREEN.value]):
             grid[x, y] = "G"
-        for x, y in np.argwhere(self.blocks[self._BLUE_ID]):
+        for x, y in np.argwhere(self.blocks[IDs.BLUE.value]):
             grid[x, y] = "B"
 
         # Flip it so y is increasing upwards
