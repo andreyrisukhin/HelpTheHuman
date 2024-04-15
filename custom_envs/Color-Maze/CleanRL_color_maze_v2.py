@@ -48,7 +48,7 @@ def collect_data(
                 action = dist.sample()
 
             actions[agent] = action.item()
-            action_log_probs[agent] = dist.log_prob(action)
+            action_log_probs[agent] = logits
             values[agent] = value.item()
 
         obs, rewards, terminateds, truncations, _ = env.step(actions)
@@ -72,26 +72,58 @@ def ppo_update(
         clip_param: float
 ):
     acc_losses = {model: 0 for model in models}
-    for epoch in range(epochs):
-        for agent, agent_data in data.items():
-            model = models[agent]
-            optimizer = optimizers[agent]
-            for obs, action, reward, done, old_log_prob, value in agent_data:
-                _, new_value = model(obs)
-                advantage = reward + gamma * new_value * (1 - int(done)) - value
-                new_log_prob = model(obs)[0]
 
-                # TODO check the loss calculation details here
-                ratio = (new_log_prob - old_log_prob).exp()
-                surr1 = ratio * advantage.detach()
-                surr2 = torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantage.detach()
-                policy_loss = -torch.min(surr1, surr2).mean()
-                value_loss = (reward + gamma * new_value.detach() * (1 - int(done)) - value).pow(2).mean()
-                acc_losses[agent] += (policy_loss.detach().item() + value_loss.detach().item())
+    for agent, agent_data in data.items():
+        rewards = []
+        model = models[agent]
+        optimizer = optimizers[agent]
+        discounted_reward = 0
+        observations, actions, observed_rewards, dones, old_log_probs, old_values = zip(*agent_data)
+        for obs, action, reward, done, old_log_prob, value in agent_data:
+            discounted_reward = reward + gamma * discounted_reward
+            rewards.insert(0, discounted_reward)
 
-                optimizer.zero_grad()
-                (policy_loss + value_loss).backward()
-                optimizer.step()
+        # Normalizing the rewards
+        rewards = torch.tensor(rewards, dtype=torch.float32)
+        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+
+        # convert list to tensor
+        # old_states = torch.squeeze(torch.stack(observations, dim=0)).detach()
+        # old_actions = torch.squeeze(torch.stack(actions, dim=0)).detach()
+        old_logprobs = torch.squeeze(torch.stack(old_log_probs, dim=0)).detach()
+        old_values = torch.squeeze(torch.stack([torch.tensor(val) for val in old_values], dim=0)).detach()
+
+        advantages = rewards - old_values
+        advantages = advantages.unsqueeze(1)
+
+        for epoch in range(epochs):
+            new_logprobs = []
+            new_values = []
+            for obs in observations:
+                new_log_prob, new_value = model(obs)
+                new_logprobs.append(new_log_prob)
+                new_values.append(new_value)
+
+            new_logprobs = torch.squeeze(torch.stack(new_logprobs, dim=0))
+            new_values = torch.squeeze(torch.stack(new_values, dim=0))
+
+            # Finding the ratio (pi_theta / pi_theta__old)
+            ratios = torch.exp(new_logprobs - old_logprobs.detach())
+
+            # Finding Surrogate Loss  
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1-clip_param, 1+clip_param) * advantages
+
+            # final loss of clipped objective PPO
+            loss_func = nn.MSELoss()
+            loss = -torch.min(surr1, surr2) + 0.5 * loss_func(new_values, rewards)  # - 0.01 * dist_entropy
+            acc_losses[agent] += loss.detach().mean().item()
+            
+            # take gradient step
+            optimizer.zero_grad()
+            loss.mean().backward()
+            optimizer.step()
+
     return {agent: acc_losses[agent] / (epochs * len(data)) for agent in acc_losses}
 
 

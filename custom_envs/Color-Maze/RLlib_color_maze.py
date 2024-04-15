@@ -100,7 +100,7 @@ if __name__ == "__main__":
         .rollouts(env_runner_cls=MultiAgentEnvRunner)
         .resources(
             num_learner_workers=1, # Set this to the number of GPUs 
-            num_gpus_per_learner_worker=1, # 1 often, if at least one GPU
+            num_gpus_per_learner_worker=0, # 1 often, if at least one GPU
             num_cpus_for_local_worker=1,
         )
         .training(model={"uses_new_env_runners": True})
