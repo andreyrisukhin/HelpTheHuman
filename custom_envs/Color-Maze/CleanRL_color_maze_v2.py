@@ -165,7 +165,8 @@ def ppo_update(
 
 
 def train(
-        run_name: str | None = None
+        run_name: str | None = None,
+        output_dir: str = 'results'
 ):
     wandb.init(entity='kavel', project='help-the-human', name=run_name)
 
@@ -211,6 +212,9 @@ def train(
 
         if DEBUG_PRINT:
             print(f"ep {epoch}: {metrics}")
+
+    torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch}.pth')
+    torch.save(follower.state_dict(), f'{output_dir}/follower_{epoch}.pth')
 
 
 if __name__ == '__main__':
