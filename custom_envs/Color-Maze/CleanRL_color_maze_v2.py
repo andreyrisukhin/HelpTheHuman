@@ -6,6 +6,7 @@ import numpy as np
 from typing import Any, Mapping
 import wandb
 from fire import Fire
+from tqdm import tqdm
 
 from src import color_maze
 
@@ -177,7 +178,7 @@ def train(
     DEBUG_PRINT = False
     SAVE_DATA = False
     LR = 1e-4  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
-    num_epochs = 100
+    num_epochs = 1000
     num_steps_per_epoch = 1000
     ppo_epochs = 4
     gamma = 0.99
@@ -191,7 +192,7 @@ def train(
     optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
     print(f'Training for {num_epochs} epochs of {num_steps_per_epoch} steps each on device={DEVICE}')
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs), total=num_epochs):
         metrics = {'leader': {}, 'follower': {}}
 
         data, sum_rewards = collect_data(env, models, num_steps_per_epoch)
