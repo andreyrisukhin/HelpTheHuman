@@ -105,7 +105,8 @@ class ColorMaze(ParallelEnv):
         - 3: Green block
         - 4: Leader agent
         - 5: Follower agent
-        
+        AHA, this is different from what we were using! AR now transitioning to enum, resolve this 0 as empty. 
+
         The observation is constructed by first creating 3 separate 2D arrays to represent the red, blue, and green blocks. These are then combined into a single observation array, and the positions of the leader and follower agents are set in the appropriate cells.
         
         Returns:

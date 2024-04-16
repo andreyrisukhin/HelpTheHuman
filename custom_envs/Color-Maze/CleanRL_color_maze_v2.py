@@ -13,8 +13,9 @@ TODOs
 
 What kind of network architectures?
 - Emergent Social Learning via Multi-agent Reinforcement Learning paper by Kamal for gridworld environments (in email)
+- After implementing, change the kernels from pixels -> gridworld cells
 - add wandb logging
-- visualize agent actions
+- visualize agent actions 
 - lab expectations doc / tweet thread
 
 
@@ -53,13 +54,17 @@ def collect_data(
             obs_tensor = torch.tensor(obs[agent], dtype=torch.float32).unsqueeze(0).flatten(start_dim=1, end_dim=-1)
             with torch.no_grad():
                 logits, value = model(obs_tensor)
-                # TODO figure out why logits are sometimes NaN which causes an error here
-                # AR: inconsistent, epoch 4-7 has a NaN and it breaks. 
-                dist = Categorical(logits=logits)
+                dist = Categorical(logits=logits) # Curiousity, why not sample directly?
                 action = dist.sample()
 
             actions[agent] = action.item()
-            action_log_probs[agent] = logits
+
+            action_log_probs[agent] = logits # TODO check that we're storing them correctly
+            # Let's revisit after updating the arch from the MLP to Natasha recc, might fix this.
+            # Else, resolve these being positive and negative, log probs should be negative.
+
+            
+            print(f"{logits}")
             values[agent] = value.item()
 
         obs, rewards, terminateds, truncations, _ = env.step(actions)
