@@ -190,7 +190,7 @@ def train(
     models = {'leader': leader, 'follower': follower}
     optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
-    print(f'Training for {num_epochs} of {num_steps_per_epoch} steps each on device={DEVICE}')
+    print(f'Training for {num_epochs} epochs of {num_steps_per_epoch} steps each on device={DEVICE}')
     for epoch in range(num_epochs):
         metrics = {'leader': {}, 'follower': {}}
 
