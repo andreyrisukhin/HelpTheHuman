@@ -166,7 +166,7 @@ def ppo_update(
 def train(
         run_name: str | None = None
 ):
-    wandb.init(project='help-the-human', name=run_name)
+    wandb.init(entity='kavel', project='help-the-human', name=run_name)
 
     env = color_maze.ColorMaze()
 
