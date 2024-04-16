@@ -26,8 +26,8 @@ class Boundary(Enum):
     # Inv: bounds are inclusive
     x1 = 0
     y1 = 0
-    x2 = 5
-    y2 = 5
+    x2 = 31
+    y2 = 31
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 class IDs(Enum):
@@ -83,7 +83,7 @@ class ColorMaze(ParallelEnv):
             # "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
         # })
         self._n_channels = 1  # unused at the moment
-        self._observation_space = Box(low=0, high=len(IDs), shape=(xBoundary, yBoundary), dtype=np.int32)
+        self._observation_space = Box(low=0, high=len(IDs), shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
 
         self.observation_spaces = {
             agent: self._observation_space
@@ -124,7 +124,7 @@ class ColorMaze(ParallelEnv):
         # Ensure that observation is a 2d array
         assert observation.ndim == 2
         assert observation.shape == (xBoundary, yBoundary)
-        # observation = observation.reshape((xBoundary, yBoundary, self._n_channels))
+        observation = observation.reshape((self._n_channels, xBoundary, yBoundary))
         return observation.astype(np.int32)
 
     def reset(self, *, seed=None, options=None):

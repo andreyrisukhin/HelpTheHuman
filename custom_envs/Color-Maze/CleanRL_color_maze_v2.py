@@ -12,10 +12,8 @@ from src import color_maze
 TODOs
 
 What kind of network architectures?
-- Emergent Social Learning via Multi-agent Reinforcement Learning paper by Kamal for gridworld environments (in email)
-- After implementing, change the kernels from pixels -> gridworld cells
 - add wandb logging
-- visualize agent actions 
+- visualize agent actions
 - lab expectations doc / tweet thread
 
 
@@ -23,18 +21,38 @@ What kind of network architectures?
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space):
         super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(np.prod(observation_space.shape), 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU()
+
+        # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
+        self.shared_network = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=3, padding=0),
+            nn.LeakyReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0),
+            nn.LeakyReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.LeakyReLU(),
+            nn.Flatten(start_dim=1),  # flatten all dims except batch-wise
+            nn.Linear(64*6*6, 192),  # TODO check nums
+            nn.Tanh(),
+            nn.LSTM(192, 192, batch_first=True),
         )
-        self.critic = nn.Linear(64, 1)
-        self.actor = nn.Linear(64, action_space.n)
+        self.policy_network = nn.Sequential(
+            nn.Linear(192, 64),
+            nn.Tanh(),
+            nn.Linear(64, 64),
+            nn.Tanh(),
+            nn.Linear(64, action_space.n),
+        )
+        self.value_network = nn.Sequential(
+            nn.Linear(192, 64),
+            nn.Tanh(),
+            nn.Linear(64, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1),
+        )
 
     def forward(self, x):
-        features = self.network(x)
-        return self.actor(features), self.critic(features)
+        features, (hidden_states, cell_states) = self.shared_network(x)
+        return self.policy_network(features), self.value_network(features)
 
 
 def collect_data(
@@ -44,6 +62,7 @@ def collect_data(
 ):
     obs, _ = env.reset()
     data = {agent: [] for agent in env.agents}
+    sum_rewards = {agent: 0 for agent in env.agents}
     for _ in range(num_steps):
         action_log_probs = {}
         values = {}
@@ -51,31 +70,27 @@ def collect_data(
         for agent in env.agents:
             model = models[agent]
             # Unsqueeze observation to have batch size 1 and flatten the grid into 1-dimension
-            obs_tensor = torch.tensor(obs[agent], dtype=torch.float32).unsqueeze(0).flatten(start_dim=1, end_dim=-1)
+            obs_tensor = torch.tensor(obs[agent], dtype=torch.float32).unsqueeze(0)
             with torch.no_grad():
                 logits, value = model(obs_tensor)
-                dist = Categorical(logits=logits) # Curiousity, why not sample directly?
+                dist = Categorical(logits=logits)
                 action = dist.sample()
 
             actions[agent] = action.item()
-
-            action_log_probs[agent] = logits # TODO check that we're storing them correctly
-            # Let's revisit after updating the arch from the MLP to Natasha recc, might fix this.
-            # Else, resolve these being positive and negative, log probs should be negative.
-
-            # print(f"{logits}")
+            action_log_probs[agent] = logits
             values[agent] = value.item()
 
         obs, rewards, terminateds, truncations, _ = env.step(actions)
 
         for agent in env.agents:
             data[agent].append((obs_tensor, action.item(), rewards[agent], terminateds[agent], action_log_probs[agent], values[agent]))
+            sum_rewards[agent] += rewards[agent]
 
         if terminateds[env.agents[0]]:
             # The environment terminates for all agents at the same time
             break
 
-    return data
+    return data, sum_rewards
 
 
 def ppo_update(
@@ -142,17 +157,19 @@ def ppo_update(
     return {agent: acc_losses[agent] / (epochs * len(data)) for agent in acc_losses}
 
 
-env = color_maze.ColorMaze(seed=42)
+env = color_maze.ColorMaze()
 # Observation and action spaces are the same for leader and follower
 obs_space = env.observation_space('leader')
 act_space = env.action_space('leader')
 
 SAVE_DATA = False
 
+LR = 1e-4  # from "Emergent Social Learning via Multi-agent Reinforcement Learning"
+
 leader = ActorCritic(obs_space, act_space)
 follower = ActorCritic(obs_space, act_space)
-leader_optimizer = optim.Adam(leader.parameters(), lr=0.01)
-follower_optimizer = optim.Adam(follower.parameters(), lr=0.01)
+leader_optimizer = optim.Adam(leader.parameters(), lr=LR)
+follower_optimizer = optim.Adam(follower.parameters(), lr=LR)
 
 num_epochs = 100
 num_steps_per_epoch = 1000
@@ -164,10 +181,18 @@ models = {'leader': leader, 'follower': follower}
 optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
 for epoch in range(num_epochs):
-    data = collect_data(env, models, num_steps_per_epoch)
+    metrics = {'leader': {}, 'follower': {}}
+
+    data, sum_rewards = collect_data(env, models, num_steps_per_epoch)
+    metrics['leader']['reward'] = sum_rewards['leader']
+    metrics['follower']['reward'] = sum_rewards['follower']
+
     if SAVE_DATA:
         # TODO serialize the episode trajectory for future use
         pass
 
     losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
-    print(f"ep {epoch}: {losses}")
+
+    metrics['leader']['loss'] = losses['leader']
+    metrics['follower']['loss'] = losses['follower']
+    print(f"ep {epoch}: {metrics}")
