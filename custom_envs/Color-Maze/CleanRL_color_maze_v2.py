@@ -13,13 +13,8 @@ from src import color_maze
 
 """
 TODOs
-
-What kind of network architectures?
-- add wandb logging
 - visualize agent actions
 - lab expectations doc / tweet thread
-
-
 """
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
