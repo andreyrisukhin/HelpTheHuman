@@ -49,7 +49,7 @@ class ColorMaze(ParallelEnv):
         "name:": "color_maze_v0",
     }
 
-    def __init__(self):
+    def __init__(self, seed=None):
         """The init method takes in environment arguments.
         
         Defines the following attributes:
@@ -65,6 +65,9 @@ class ColorMaze(ParallelEnv):
         If not overridden, spaces are inferred from self.observation_spaces and self.action_space.
         """
 
+        if seed is None:
+            seed = random.randint(0, 2 ** 31) # TODO replace with np
+        self.seed = seed
         self.possible_agents = ["leader", "follower"]
         self.leader_x = None
         self.leader_y = None
@@ -128,7 +131,8 @@ class ColorMaze(ParallelEnv):
         """Reset the environment to a starting point.
         
         """
-
+        if seed is not None:
+            self.seed = seed
         self.agents = copy(self.possible_agents)
         self.timestep = 0
         # TODO randomize initial locations
@@ -160,19 +164,21 @@ class ColorMaze(ParallelEnv):
         infos = {a: {} for a in self.agents}
         return observations, infos
 
-    def _consume_and_spawn_block(self, color_idx, x, y) -> None:
+    def _consume_and_spawn_block(self, color_idx:int, x:int, y:int) -> None:
         self.blocks[color_idx, x, y] = 0
-        # Find a different cell with value 0 and set it to 1
+        # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there
         
+        # self.seed
+
         zero_indices = np.argwhere(np.all((self.blocks == 0), axis=0))
         np.random.shuffle(zero_indices)
-        for new_xy in zero_indices:
-            if ((new_xy[0] == self.leader_x and new_xy[1] == self.leader_y) or
-                (new_xy[0] == self.leader_x and new_xy[1] == self.leader_y)):
+        for x,y in zero_indices:
+            if ((x == self.leader_x and y == self.leader_y) or
+                (x == self.follower_x and y == self.follower_y)):
                 continue
 
-            self.blocks[color_idx, new_xy[0], new_xy[1]] = 1
+            self.blocks[color_idx, x, y] = 1
             return
         assert False, "No cell with value 0 found to update."
 

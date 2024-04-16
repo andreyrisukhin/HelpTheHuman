@@ -63,8 +63,7 @@ def collect_data(
             # Let's revisit after updating the arch from the MLP to Natasha recc, might fix this.
             # Else, resolve these being positive and negative, log probs should be negative.
 
-            
-            print(f"{logits}")
+            # print(f"{logits}")
             values[agent] = value.item()
 
         obs, rewards, terminateds, truncations, _ = env.step(actions)
@@ -143,7 +142,7 @@ def ppo_update(
     return {agent: acc_losses[agent] / (epochs * len(data)) for agent in acc_losses}
 
 
-env = color_maze.ColorMaze()
+env = color_maze.ColorMaze(seed=42)
 # Observation and action spaces are the same for leader and follower
 obs_space = env.observation_space('leader')
 act_space = env.action_space('leader')
