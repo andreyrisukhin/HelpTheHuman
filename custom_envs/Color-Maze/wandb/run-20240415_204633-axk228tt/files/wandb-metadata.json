@@ -1,0 +1,49 @@
+{
+    "os": "macOS-14.3-arm64-arm-64bit",
+    "python": "3.11.8",
+    "heartbeatAt": "2024-04-16T03:46:33.799080",
+    "startedAt": "2024-04-16T03:46:33.240702",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/Users/kavelrao/dev/social-rl/HelpTheHuman/custom_envs/Color-Maze/CleanRL_color_maze_v2.py",
+    "codePathLocal": "CleanRL_color_maze_v2.py",
+    "codePath": "custom_envs/Color-Maze/CleanRL_color_maze_v2.py",
+    "git": {
+        "remote": "git@github.com:andreyrisukhin/HelpTheHuman.git",
+        "commit": "91fa3ec34e921c37bb01f8d1caaf1d42a66e6971"
+    },
+    "email": "kavelrao@cs.washington.edu",
+    "root": "/Users/kavelrao/dev/social-rl/HelpTheHuman",
+    "host": "ip-10-18-124-0.us-west-2.compute.internal",
+    "username": "kavelrao",
+    "executable": "/Users/kavelrao/miniconda3/envs/help-human/bin/python",
+    "cpu_count": 10,
+    "cpu_count_logical": 10,
+    "cpu_freq": {
+        "current": 3504,
+        "min": 702,
+        "max": 3504
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 3504,
+            "min": 702,
+            "max": 3504
+        }
+    ],
+    "disk": {
+        "/": {
+            "total": 460.4317207336426,
+            "used": 13.36468505859375
+        }
+    },
+    "gpuapple": {
+        "type": "arm",
+        "vendor": "Apple"
+    },
+    "memory": {
+        "total": 16.0
+    }
+}

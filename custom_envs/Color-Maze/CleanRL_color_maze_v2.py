@@ -5,6 +5,7 @@ from torch.distributions import Categorical
 import numpy as np
 from typing import Any, Mapping
 import wandb
+from fire import Fire
 
 from src import color_maze
 
@@ -162,42 +163,53 @@ def ppo_update(
     return {agent: acc_losses[agent] / (epochs * len(data)) for agent in acc_losses}
 
 
-env = color_maze.ColorMaze()
-# Observation and action spaces are the same for leader and follower
-obs_space = env.observation_space('leader')
-act_space = env.action_space('leader')
+def train(
+        run_name: str | None = None
+):
+    wandb.init(project='help-the-human', name=run_name)
 
-SAVE_DATA = False
+    env = color_maze.ColorMaze()
 
-LR = 1e-4  # from "Emergent Social Learning via Multi-agent Reinforcement Learning"
+    # Observation and action spaces are the same for leader and follower
+    obs_space = env.observation_space('leader')
+    act_space = env.action_space('leader')
 
-leader = ActorCritic(obs_space, act_space).to(DEVICE)
-follower = ActorCritic(obs_space, act_space).to(DEVICE)
-leader_optimizer = optim.Adam(leader.parameters(), lr=LR)
-follower_optimizer = optim.Adam(follower.parameters(), lr=LR)
+    DEBUG_PRINT = False
+    SAVE_DATA = False
+    LR = 1e-4  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
+    num_epochs = 100
+    num_steps_per_epoch = 1000
+    ppo_epochs = 4
+    gamma = 0.99
+    clip_param = 0.2
 
-num_epochs = 100
-num_steps_per_epoch = 1000
-ppo_epochs = 4
-gamma = 0.99
-clip_param = 0.2
+    leader = ActorCritic(obs_space, act_space).to(DEVICE)
+    follower = ActorCritic(obs_space, act_space).to(DEVICE)
+    leader_optimizer = optim.Adam(leader.parameters(), lr=LR)
+    follower_optimizer = optim.Adam(follower.parameters(), lr=LR)
+    models = {'leader': leader, 'follower': follower}
+    optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
-models = {'leader': leader, 'follower': follower}
-optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
+    for epoch in range(num_epochs):
+        metrics = {'leader': {}, 'follower': {}}
 
-for epoch in range(num_epochs):
-    metrics = {'leader': {}, 'follower': {}}
+        data, sum_rewards = collect_data(env, models, num_steps_per_epoch)
+        metrics['leader']['reward'] = sum_rewards['leader']
+        metrics['follower']['reward'] = sum_rewards['follower']
 
-    data, sum_rewards = collect_data(env, models, num_steps_per_epoch)
-    metrics['leader']['reward'] = sum_rewards['leader']
-    metrics['follower']['reward'] = sum_rewards['follower']
+        if SAVE_DATA:
+            # TODO serialize the episode trajectory for future use
+            pass
 
-    if SAVE_DATA:
-        # TODO serialize the episode trajectory for future use
-        pass
+        losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
 
-    losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
+        metrics['leader']['loss'] = losses['leader']
+        metrics['follower']['loss'] = losses['follower']
+        wandb.log(metrics, step=epoch)
 
-    metrics['leader']['loss'] = losses['leader']
-    metrics['follower']['loss'] = losses['follower']
-    print(f"ep {epoch}: {metrics}")
+        if DEBUG_PRINT:
+            print(f"ep {epoch}: {metrics}")
+
+
+if __name__ == '__main__':
+    Fire(train)
