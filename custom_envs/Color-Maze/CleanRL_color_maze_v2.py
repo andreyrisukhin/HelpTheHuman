@@ -33,7 +33,7 @@ class ActorCritic(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
             nn.LeakyReLU(),
             nn.Flatten(start_dim=1),  # flatten all dims except batch-wise
-            nn.Linear(64*6*6, 192),  # TODO check nums
+            nn.Linear(64*6*6, 192),
             nn.Tanh(),
             nn.LSTM(192, 192, batch_first=True),
         )
