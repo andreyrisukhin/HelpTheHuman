@@ -4,6 +4,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
 from typing import Any, Mapping
+import wandb
 
 from src import color_maze
 
@@ -18,6 +19,10 @@ What kind of network architectures?
 
 
 """
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space):
         super().__init__()
@@ -70,7 +75,7 @@ def collect_data(
         for agent in env.agents:
             model = models[agent]
             # Unsqueeze observation to have batch size 1 and flatten the grid into 1-dimension
-            obs_tensor = torch.tensor(obs[agent], dtype=torch.float32).unsqueeze(0)
+            obs_tensor = torch.tensor(obs[agent], dtype=torch.float32, device=DEVICE).unsqueeze(0)
             with torch.no_grad():
                 logits, value = model(obs_tensor)
                 dist = Categorical(logits=logits)
@@ -114,14 +119,14 @@ def ppo_update(
             rewards.insert(0, discounted_reward)
 
         # Normalizing the rewards
-        rewards = torch.tensor(rewards, dtype=torch.float32)
+        rewards = torch.tensor(rewards, dtype=torch.float32, device=DEVICE)
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
 
         # convert list to tensor
         # old_states = torch.squeeze(torch.stack(observations, dim=0)).detach()
         # old_actions = torch.squeeze(torch.stack(actions, dim=0)).detach()
         old_logprobs = torch.squeeze(torch.stack(old_log_probs, dim=0)).detach()
-        old_values = torch.squeeze(torch.stack([torch.tensor(val) for val in old_values], dim=0)).detach()
+        old_values = torch.squeeze(torch.stack([torch.tensor(val, device=DEVICE) for val in old_values], dim=0)).detach()
 
         advantages = rewards - old_values
         advantages = advantages.unsqueeze(1)
@@ -166,8 +171,8 @@ SAVE_DATA = False
 
 LR = 1e-4  # from "Emergent Social Learning via Multi-agent Reinforcement Learning"
 
-leader = ActorCritic(obs_space, act_space)
-follower = ActorCritic(obs_space, act_space)
+leader = ActorCritic(obs_space, act_space).to(DEVICE)
+follower = ActorCritic(obs_space, act_space).to(DEVICE)
 leader_optimizer = optim.Adam(leader.parameters(), lr=LR)
 follower_optimizer = optim.Adam(follower.parameters(), lr=LR)
 
