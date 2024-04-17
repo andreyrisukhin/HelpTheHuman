@@ -68,6 +68,7 @@ class ColorMaze(ParallelEnv):
         if seed is None:
             seed = random.randint(0, 2 ** 31) # TODO replace with np
         self.seed = seed
+        self.rng = np.random.Generator(np.random.PCG64(seed))
         self.possible_agents = ["leader", "follower"]
         self.leader_x = None
         self.leader_y = None
@@ -172,7 +173,7 @@ class ColorMaze(ParallelEnv):
         # self.seed
 
         zero_indices = np.argwhere(np.all((self.blocks == 0), axis=0))
-        np.random.shuffle(zero_indices)
+        self.rng.shuffle(zero_indices)
         for x,y in zero_indices:
             if ((x == self.leader_x and y == self.leader_y) or
                 (x == self.follower_x and y == self.follower_y)):
