@@ -8,7 +8,7 @@ Movement: leader and follower share moveset, one grid up, down, left, right.
 """
 
 import functools
-import random
+# import random
 from copy import copy
 
 import numpy as np
@@ -65,10 +65,12 @@ class ColorMaze(ParallelEnv):
         If not overridden, spaces are inferred from self.observation_spaces and self.action_space.
         """
 
+        self.seed = seed # For inspection
         if seed is None:
-            seed = random.randint(0, 2 ** 31) # TODO replace with np
-        self.seed = seed
-        self.rng = np.random.Generator(np.random.PCG64(seed))
+            self.rng = np.random.default_rng()
+        else:
+            self.rng = np.random.Generator(np.random.PCG64(seed))
+        
         self.possible_agents = ["leader", "follower"]
         self.leader_x = None
         self.leader_y = None
