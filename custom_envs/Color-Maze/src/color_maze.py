@@ -31,11 +31,11 @@ class Boundary(Enum):
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 class IDs(Enum):
-    RED = 1
-    BLUE = 2
-    GREEN = 3
-    LEADER = 4
-    FOLLOWER = 5
+    RED = 0
+    BLUE = 1
+    GREEN = 2
+    LEADER = 3
+    FOLLOWER = 4
 
 # parallel_env = parallel_wrapper_fn(env) # RockPaperScissors had this, referenced by RLlib example.
 # We think it's unneeded because ColorMaze extends ParallelEnv.
@@ -118,17 +118,36 @@ class ColorMaze(ParallelEnv):
         Returns:
             numpy.ndarray: The 2D observation array.
         """
-        red_vals = np.where(self.blocks[IDs.RED.value], IDs.RED.value, 0)
-        blue_vals = np.where(self.blocks[IDs.BLUE.value], IDs.BLUE.value, 0)
-        green_vals = np.where(self.blocks[IDs.GREEN.value], IDs.GREEN.value, 0)
+        # Add 1 to IDs to allow 0 to be empty space
+        red_vals = np.where(self.blocks[IDs.RED.value], IDs.RED.value + 1, 0)
+        blue_vals = np.where(self.blocks[IDs.BLUE.value], IDs.BLUE.value + 1, 0)
+        green_vals = np.where(self.blocks[IDs.GREEN.value], IDs.GREEN.value + 1, 0)
         observation = red_vals + blue_vals + green_vals
-        observation[self.leader_x, self.leader_y] = IDs.LEADER.value
-        observation[self.follower_x, self.follower_y] = IDs.FOLLOWER.value
+        observation[self.leader_x, self.leader_y] = IDs.LEADER.value + 1
+        observation[self.follower_x, self.follower_y] = IDs.FOLLOWER.value + 1
         # Ensure that observation is a 2d array
         assert observation.ndim == 2
         assert observation.shape == (xBoundary, yBoundary)
         observation = observation.reshape((self._n_channels, xBoundary, yBoundary))
         return observation.astype(np.int32)
+
+    def set_state_to_observation(self, observation: np.ndarray):
+        """
+        Converts the format returned from _convert_to_observation
+        into the internal env state representation.
+        *Overrides* the current env state with the given observation.
+        """
+        # Add 1 to IDs because 0 is empty space
+        red_places = np.where(observation == IDs.RED.value + 1, 1, 0).reshape((xBoundary, yBoundary))
+        blue_places = np.where(observation == IDs.BLUE.value + 1, 1, 0).reshape((xBoundary, yBoundary))
+        green_places = np.where(observation == IDs.GREEN.value + 1, 1, 0).reshape((xBoundary, yBoundary))
+        leader_places = np.where(observation == IDs.LEADER.value + 1, 1, 0).reshape((xBoundary, yBoundary))
+        follower_places = np.where(observation == IDs.FOLLOWER.value + 1, 1, 0).reshape((xBoundary, yBoundary))
+        assert leader_places.sum() == 1
+        assert follower_places.sum() == 1
+        self.blocks = np.stack((red_places, blue_places, green_places))
+        self.leader_x, self.leader_y = np.argwhere(leader_places).flatten()
+        self.follower_x, self.follower_y = np.argwhere(follower_places).flatten()
 
     def reset(self, *, seed=None, options=None):
         """Reset the environment to a starting point.
@@ -282,7 +301,7 @@ class ColorMaze(ParallelEnv):
 
     def render(self):
         """Render the environment."""
-        grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), " ")
+        grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
         grid[self.leader_x, self.leader_y] = "L"
         grid[self.follower_x, self.follower_y] = "F"
         for x, y in np.argwhere(self.blocks[IDs.RED.value]):
@@ -294,4 +313,7 @@ class ColorMaze(ParallelEnv):
 
         # Flip it so y is increasing upwards
         grid = np.flipud(grid.T)
-        print(grid)
+        rendered = ""
+        for row in grid:
+            rendered += "".join(row) + "\n"
+        print(rendered)
