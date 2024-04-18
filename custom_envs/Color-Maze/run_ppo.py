@@ -8,6 +8,7 @@ import wandb
 from fire import Fire
 from tqdm import tqdm
 import os
+from replay_trajectory import replay_trajectory
 
 from src import color_maze
 
@@ -199,9 +200,9 @@ def train(
         metrics['leader']['reward'] = sum_rewards['leader']
         metrics['follower']['reward'] = sum_rewards['follower']
 
+        observation_states = [step_data[0].numpy() for step_data in data['leader']]
+        trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
         if save_data:
-            observation_states = [step_data[0].numpy() for step_data in data['leader']]
-            trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
             np.save(f"{output_dir}/trajectories/trajectory_{epoch=}.npy", trajectory)
 
@@ -214,6 +215,7 @@ def train(
 
         if debug_print:
             print(f"ep {epoch}: {metrics}")
+            replay_trajectory(trajectory)
 
         if checkpoint_epochs and epoch % checkpoint_epochs == 0:
             print(f"Saving models at epoch {epoch}")
