@@ -81,7 +81,7 @@ def collect_data(
                 action = dist.sample()
 
             actions[agent] = action.item()
-            action_log_probs[agent] = logits.item()
+            action_log_probs[agent] = logits.detach()
             values[agent] = value.item()
 
         obs, rewards, terminateds, truncations, _ = env.step(actions)
@@ -171,9 +171,11 @@ def train(
         gamma: float = 0.99,
         clip_param: float = 0.2,
         save_data: bool = True,
-        debug_print: bool = False
+        debug_print: bool = False,
+        log_to_wandb: bool = True
 ):
-    wandb.init(entity='kavel', project='help-the-human', name=run_name)
+    if log_to_wandb:
+        wandb.init(entity='kavel', project='help-the-human', name=run_name)
 
     env = color_maze.ColorMaze()
 
@@ -206,7 +208,8 @@ def train(
 
         metrics['leader']['loss'] = losses['leader']
         metrics['follower']['loss'] = losses['follower']
-        wandb.log(metrics, step=epoch)
+        if log_to_wandb:
+            wandb.log(metrics, step=epoch)
 
         if debug_print:
             print(f"ep {epoch}: {metrics}")
