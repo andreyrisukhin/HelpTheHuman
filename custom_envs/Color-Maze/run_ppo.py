@@ -171,6 +171,7 @@ def train(
         gamma: float = 0.99,
         clip_param: float = 0.2,
         save_data: bool = True,
+        checkpoint_epochs: int = 0,
         debug_print: bool = False,
         log_to_wandb: bool = True
 ):
@@ -202,7 +203,7 @@ def train(
             observation_states = [step_data[0].numpy() for step_data in data['leader']]
             trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
-            np.save(f"{output_dir}/trajectories/trajectory_{epoch}.npy", trajectory)
+            np.save(f"{output_dir}/trajectories/trajectory_{epoch=}.npy", trajectory)
 
         losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
 
@@ -214,8 +215,13 @@ def train(
         if debug_print:
             print(f"ep {epoch}: {metrics}")
 
-    torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch}.pth')
-    torch.save(follower.state_dict(), f'{output_dir}/follower_{epoch}.pth')
+        if checkpoint_epochs and epoch % checkpoint_epochs == 0:
+            print(f"Saving models at epoch {epoch}")
+            torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch=}.pth')
+            torch.save(follower.state_dict(), f'{output_dir}/follower_{epoch=}.pth')
+
+    torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch=}.pth')
+    torch.save(follower.state_dict(), f'{output_dir}/follower_{epoch=}.pth')
 
 
 if __name__ == '__main__':
