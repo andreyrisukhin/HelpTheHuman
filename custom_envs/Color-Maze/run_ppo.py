@@ -200,7 +200,7 @@ def train(
 
         if save_data:
             observation_states = [step_data[0].numpy() for step_data in data['leader']]
-            trajectory = np.stack(observation_states)
+            trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
             np.save(f"{output_dir}/trajectories/trajectory_{epoch}.npy", trajectory)
 
