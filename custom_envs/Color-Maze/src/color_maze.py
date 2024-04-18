@@ -16,6 +16,7 @@ from gymnasium.spaces import Discrete, MultiDiscrete, Box, Space, Dict
 
 from pettingzoo import ParallelEnv
 
+from dataclasses import dataclass
 from enum import Enum
 class Moves(Enum):
     UP = 0
@@ -23,7 +24,7 @@ class Moves(Enum):
     LEFT = 2
     RIGHT = 3
 class Boundary(Enum):
-    # Inv: bounds are inclusive
+    # Invariant: bounds are inclusive
     x1 = 0
     y1 = 0
     x2 = 31
@@ -37,8 +38,12 @@ class IDs(Enum):
     LEADER = 3
     FOLLOWER = 4
 
-# parallel_env = parallel_wrapper_fn(env) # RockPaperScissors had this, referenced by RLlib example.
-# We think it's unneeded because ColorMaze extends ParallelEnv.
+@dataclass 
+class Agent:
+    '''Agent class to store x and y coordinates of the agent. Automatically creates __init__ and __repr__ methods.'''
+    x: int
+    y: int
+
 
 class ColorMaze(ParallelEnv):
     """The metadata holds environment constants.
@@ -72,10 +77,14 @@ class ColorMaze(ParallelEnv):
             self.rng = np.random.Generator(np.random.PCG64(seed))
         
         self.possible_agents = ["leader", "follower"]
-        self.leader_x = None
-        self.leader_y = None
-        self.follower_x = None
-        self.follower_y = None
+
+        self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
+        self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+
+        # self.leader.x = None
+        # self.leader.y = None
+        # self.follower.x = None
+        # self.follower.y = None
         # Inv: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((3, xBoundary, yBoundary))
         self.timestep = 0
@@ -123,8 +132,8 @@ class ColorMaze(ParallelEnv):
         blue_vals = np.where(self.blocks[IDs.BLUE.value], IDs.BLUE.value + 1, 0)
         green_vals = np.where(self.blocks[IDs.GREEN.value], IDs.GREEN.value + 1, 0)
         observation = red_vals + blue_vals + green_vals
-        observation[self.leader_x, self.leader_y] = IDs.LEADER.value + 1
-        observation[self.follower_x, self.follower_y] = IDs.FOLLOWER.value + 1
+        observation[self.leader.x, self.leader.y] = IDs.LEADER.value + 1
+        observation[self.follower.x, self.follower.y] = IDs.FOLLOWER.value + 1
         # Ensure that observation is a 2d array
         assert observation.ndim == 2
         assert observation.shape == (xBoundary, yBoundary)
@@ -146,8 +155,8 @@ class ColorMaze(ParallelEnv):
         assert leader_places.sum() == 1
         assert follower_places.sum() == 1
         self.blocks = np.stack((red_places, blue_places, green_places))
-        self.leader_x, self.leader_y = np.argwhere(leader_places).flatten()
-        self.follower_x, self.follower_y = np.argwhere(follower_places).flatten()
+        self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
+        self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
     def reset(self, *, seed=None, options=None):
         """Reset the environment to a starting point.
@@ -158,10 +167,10 @@ class ColorMaze(ParallelEnv):
         self.agents = copy(self.possible_agents)
         self.timestep = 0
         # TODO randomize initial locations
-        self.leader_x = Boundary.x1.value
-        self.leader_y = Boundary.y1.value
-        self.follower_x = Boundary.x2.value
-        self.follower_y = Boundary.y2.value
+        self.leader.x = Boundary.x1.value
+        self.leader.y = Boundary.y1.value
+        self.follower.x = Boundary.x2.value
+        self.follower.y = Boundary.y2.value
 
         self.blocks = np.zeros((3, xBoundary, yBoundary))
         self._consume_and_spawn_block(IDs.RED.value, 0, 0)
@@ -196,8 +205,8 @@ class ColorMaze(ParallelEnv):
         zero_indices = np.argwhere(np.all((self.blocks == 0), axis=0))
         self.rng.shuffle(zero_indices)
         for x,y in zero_indices:
-            if ((x == self.leader_x and y == self.leader_y) or
-                (x == self.follower_x and y == self.follower_y)):
+            if ((x == self.leader.x and y == self.leader.y) or
+                (x == self.follower.x and y == self.follower.y)):
                 continue
 
             self.blocks[color_idx, x, y] = 1
@@ -235,18 +244,18 @@ class ColorMaze(ParallelEnv):
             elif action == Moves.RIGHT.value and x < Boundary.x2.value:
                 new_x += 1
     
-            if (new_x, new_y) == (self.leader_x, self.leader_y):
+            if (new_x, new_y) == (self.leader.x, self.leader.y):
                 return x, y
             else:
                 return new_x, new_y
         
-        self.leader_x, self.leader_y = _move(self.leader_x, self.leader_y, leader_action)
-        self.follower_x, self.follower_y = _move(self.follower_x, self.follower_y, follower_action)
+        self.leader.x, self.leader.y = _move(self.leader.x, self.leader.y, leader_action)
+        self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
 
         # Make action masks
         leader_action_mask = np.ones(4)
         follower_action_mask = np.ones(4)
-        for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader_x, self.follower_x], [self.leader_y, self.follower_y]):
+        for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if x == Boundary.x1.value:
                 action_mask[Moves.LEFT.value] = 0  # cant go left
             if x == Boundary.x2.value:
@@ -258,7 +267,7 @@ class ColorMaze(ParallelEnv):
 
         # Give rewards
         shared_reward = 0
-        for agent, x, y in zip(["leader", "follower"], [self.leader_x, self.follower_x], [self.leader_y, self.follower_y]):
+        for agent, x, y in zip(["leader", "follower"], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if self.blocks[self.goal_block.value, x, y]:
                 shared_reward = 1
                 self._consume_and_spawn_block(self.goal_block.value, x, y)
@@ -302,8 +311,8 @@ class ColorMaze(ParallelEnv):
     def render(self):
         """Render the environment."""
         grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
-        grid[self.leader_x, self.leader_y] = "L"
-        grid[self.follower_x, self.follower_y] = "F"
+        grid[self.leader.x, self.leader.y] = "L"
+        grid[self.follower.x, self.follower.y] = "F"
         for x, y in np.argwhere(self.blocks[IDs.RED.value]):
             grid[x, y] = "R"
         for x, y in np.argwhere(self.blocks[IDs.GREEN.value]):
