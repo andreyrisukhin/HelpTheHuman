@@ -87,7 +87,7 @@ def collect_data(
         obs, rewards, terminateds, truncations, _ = env.step(actions)
 
         for agent in env.agents:
-            data[agent].append((obs_tensor, action.item(), rewards[agent], terminateds[agent], action_log_probs[agent], values[agent]))
+            data[agent].append((obs_tensor, actions[agent], rewards[agent], terminateds[agent], action_log_probs[agent], values[agent]))
             sum_rewards[agent] += rewards[agent]
 
         if terminateds[env.agents[0]]:
