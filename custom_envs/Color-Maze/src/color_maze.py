@@ -173,10 +173,13 @@ class ColorMaze(ParallelEnv):
         self.follower.y = Boundary.y2.value
 
         self.blocks = np.zeros((3, xBoundary, yBoundary))
-        self._consume_and_spawn_block(IDs.RED.value, 0, 0)
-        self._consume_and_spawn_block(IDs.GREEN.value, 0, 0)
-        self._consume_and_spawn_block(IDs.BLUE.value, 0, 0)
 
+        # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
+        for _ in range(16):
+            self._consume_and_spawn_block(IDs.RED.value, 0, 0)
+            self._consume_and_spawn_block(IDs.GREEN.value, 0, 0)
+            self._consume_and_spawn_block(IDs.BLUE.value, 0, 0)
+        
         self.goal_block = IDs.RED  # TODO to introduce non-stationarity, change this at some point
 
         observation = self._convert_to_observation()

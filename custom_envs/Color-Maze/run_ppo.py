@@ -228,8 +228,8 @@ def train(
         if save_data_epochs and epoch % save_data_epochs == 0:
             observation_states = [step_data.observation.cpu().numpy() for step_data in data['leader']]
             trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
-            os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
-            np.save(f"{output_dir}/trajectories/trajectory_{epoch=}.npy", trajectory)
+            os.makedirs(f"{output_dir}/trajectories/{run_name}", exist_ok=True)
+            np.save(f"{output_dir}/trajectories/{run_name}/trajectory_{epoch=}.npy", trajectory)
 
         losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
 
