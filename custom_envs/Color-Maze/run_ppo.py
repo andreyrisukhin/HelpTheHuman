@@ -4,14 +4,29 @@ import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
 from typing import Any, Mapping
+from dataclasses import dataclass
+
 import wandb
 from fire import Fire
 from tqdm import tqdm
 import os
+
+
 from replay_trajectory import replay_trajectory
 
 from src import color_maze
 
+@dataclass
+class StepData:
+    observation: torch.Tensor
+    action: int
+    reward: int
+    terminated: bool
+    action_log_prob: torch.Tensor
+    value: torch.Tensor
+
+    def __iter__(self):
+        return iter((self.observation, self.action, self.reward, self.terminated, self.action_log_prob, self.value))
 
 """
 TODOs
@@ -63,7 +78,7 @@ def collect_data(
         env: color_maze.ColorMaze,
         models: Mapping[str, nn.Module],
         num_steps: int
-) -> tuple[dict[str, list[tuple[torch.Tensor, int, int, bool, torch.Tensor, torch.Tensor]]], dict[str, int]]:
+) -> tuple[dict[str, list[StepData]], dict[str, int]]:
     # TODO make a dataclass for the `data`` return type; this list[tuple] is prone to errors
     obs, _ = env.reset()
     data = {agent: [] for agent in env.agents}
@@ -88,7 +103,15 @@ def collect_data(
         obs, rewards, terminateds, truncations, _ = env.step(actions)
 
         for agent in env.agents:
-            data[agent].append((obs_tensor, actions[agent], rewards[agent], terminateds[agent], action_log_probs[agent], values[agent]))
+            step_data = StepData(
+                observation=obs_tensor,
+                action=actions[agent],
+                reward=rewards[agent],
+                terminated=terminateds[agent],
+                action_log_prob=action_log_probs[agent],
+                value=values[agent]
+            )
+            data[agent].append(step_data)
             sum_rewards[agent] += rewards[agent]
 
         if terminateds[env.agents[0]]:
@@ -114,6 +137,8 @@ def ppo_update(
         optimizer = optimizers[agent]
         discounted_reward = 0
         observations, actions, observed_rewards, dones, old_log_probs, old_values = zip(*agent_data)
+
+
         for obs, action, reward, done, old_log_prob, value in agent_data:
             discounted_reward = reward + gamma * discounted_reward
             rewards.insert(0, discounted_reward)
@@ -202,7 +227,7 @@ def train(
 
         trajectory = None
         if save_data_epochs and epoch % save_data_epochs == 0:
-            observation_states = [step_data[0].cpu().numpy() for step_data in data['leader']]
+            observation_states = [step_data.observation.cpu().numpy() for step_data in data['leader']]
             trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
             np.save(f"{output_dir}/trajectories/trajectory_{epoch=}.npy", trajectory)
@@ -217,7 +242,7 @@ def train(
         if debug_print:
             print(f"ep {epoch}: {metrics}")
             if trajectory is None:
-                observation_states = [step_data[0].cpu().numpy() for step_data in data['leader']]
+                observation_states = [step_data.observation.cpu().numpy() for step_data in data['leader']]
                 trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             replay_trajectory(trajectory)
 
