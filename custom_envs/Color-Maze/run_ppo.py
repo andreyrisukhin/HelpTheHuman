@@ -171,7 +171,7 @@ def train(
         ppo_epochs: int = 4,
         gamma: float = 0.99,
         clip_param: float = 0.2,
-        save_data: bool = True,
+        save_data_epochs: int = 100,
         checkpoint_epochs: int = 0,
         debug_print: bool = False,
         log_to_wandb: bool = True
@@ -200,9 +200,10 @@ def train(
         metrics['leader']['reward'] = sum_rewards['leader']
         metrics['follower']['reward'] = sum_rewards['follower']
 
-        observation_states = [step_data[0].numpy() for step_data in data['leader']]
-        trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
-        if save_data:
+        trajectory = None
+        if save_data_epochs and epoch % save_data_epochs == 0:
+            observation_states = [step_data[0].cpu().numpy() for step_data in data['leader']]
+            trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
             np.save(f"{output_dir}/trajectories/trajectory_{epoch=}.npy", trajectory)
 
@@ -215,6 +216,9 @@ def train(
 
         if debug_print:
             print(f"ep {epoch}: {metrics}")
+            if trajectory is None:
+                observation_states = [step_data[0].cpu().numpy() for step_data in data['leader']]
+                trajectory = np.concatenate(observation_states, axis=0)  # Concatenate along the batch axis
             replay_trajectory(trajectory)
 
         if checkpoint_epochs and epoch % checkpoint_epochs == 0:
