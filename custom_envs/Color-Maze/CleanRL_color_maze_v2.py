@@ -7,6 +7,7 @@ from typing import Any, Mapping
 import wandb
 from fire import Fire
 from tqdm import tqdm
+import os
 
 from src import color_maze
 
@@ -61,7 +62,8 @@ def collect_data(
         env: color_maze.ColorMaze,
         models: Mapping[str, nn.Module],
         num_steps: int
-):
+) -> tuple[dict[str, list[tuple[torch.Tensor, int, int, bool, torch.Tensor, torch.Tensor]]], dict[str, int]]:
+    # TODO make a dataclass for the `data`` return type; this list[tuple] is prone to errors
     obs, _ = env.reset()
     data = {agent: [] for agent in env.agents}
     sum_rewards = {agent: 0 for agent in env.agents}
@@ -79,7 +81,7 @@ def collect_data(
                 action = dist.sample()
 
             actions[agent] = action.item()
-            action_log_probs[agent] = logits
+            action_log_probs[agent] = logits.item()
             values[agent] = value.item()
 
         obs, rewards, terminateds, truncations, _ = env.step(actions)
@@ -195,8 +197,10 @@ def train(
         metrics['follower']['reward'] = sum_rewards['follower']
 
         if save_data:
-            # TODO serialize the episode trajectory for future use
-            pass
+            observation_states = [step_data[0].numpy() for step_data in data['leader']]
+            trajectory = np.stack(observation_states)
+            os.makedirs(f"{output_dir}/trajectories", exist_ok=True)
+            np.save(f"{output_dir}/trajectories/trajectory_{epoch}.npy", trajectory)
 
         losses = ppo_update(models, optimizers, data, ppo_epochs, gamma, clip_param)
 
