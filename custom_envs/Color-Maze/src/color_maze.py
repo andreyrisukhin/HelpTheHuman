@@ -31,11 +31,11 @@ class Boundary(Enum):
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 class IDs(Enum):
-    RED = 0
-    BLUE = 1
-    GREEN = 2
-    LEADER = 3
-    FOLLOWER = 4
+    RED = 1
+    BLUE = 2
+    GREEN = 3
+    LEADER = 4
+    FOLLOWER = 5
 
 # parallel_env = parallel_wrapper_fn(env) # RockPaperScissors had this, referenced by RLlib example.
 # We think it's unneeded because ColorMaze extends ParallelEnv.
