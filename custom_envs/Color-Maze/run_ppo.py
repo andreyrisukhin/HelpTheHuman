@@ -79,7 +79,6 @@ def collect_data(
         models: Mapping[str, nn.Module],
         num_steps: int
 ) -> tuple[dict[str, list[StepData]], dict[str, int]]:
-    # TODO make a dataclass for the `data`` return type; this list[tuple] is prone to errors
     obs, _ = env.reset()
     data = {agent: [] for agent in env.agents}
     sum_rewards = {agent: 0 for agent in env.agents}

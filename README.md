@@ -1,5 +1,17 @@
 # Help the Human
 
+## Running the Repo
+Use Python 3.12 (Dataclasses).
+
+Create an environment from the requirements.txt using
+```{python}
+pip install -r requirements.txt
+```
+To update the requirements.txt after you added an import, use
+```{python}
+pip freeze > requirements.txt
+```
+
 ## Citation for PettingZoo
 
 To cite PettingZoo in publication, please use
