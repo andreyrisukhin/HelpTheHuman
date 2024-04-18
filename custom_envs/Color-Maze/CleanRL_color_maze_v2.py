@@ -161,7 +161,15 @@ def ppo_update(
 
 def train(
         run_name: str | None = None,
-        output_dir: str = 'results'
+        output_dir: str = 'results',
+        learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
+        num_epochs: int = 1000,
+        num_steps_per_epoch: int = 1000,
+        ppo_epochs: int = 4,
+        gamma: float = 0.99,
+        clip_param: float = 0.2,
+        save_data: bool = True,
+        debug_print: bool = False
 ):
     wandb.init(entity='kavel', project='help-the-human', name=run_name)
 
@@ -171,19 +179,10 @@ def train(
     obs_space = env.observation_space('leader')
     act_space = env.action_space('leader')
 
-    DEBUG_PRINT = False
-    SAVE_DATA = False
-    LR = 1e-4  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
-    num_epochs = 1000
-    num_steps_per_epoch = 1000
-    ppo_epochs = 4
-    gamma = 0.99
-    clip_param = 0.2
-
     leader = ActorCritic(obs_space, act_space).to(DEVICE)
     follower = ActorCritic(obs_space, act_space).to(DEVICE)
-    leader_optimizer = optim.Adam(leader.parameters(), lr=LR)
-    follower_optimizer = optim.Adam(follower.parameters(), lr=LR)
+    leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate)
+    follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate)
     models = {'leader': leader, 'follower': follower}
     optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
@@ -195,7 +194,7 @@ def train(
         metrics['leader']['reward'] = sum_rewards['leader']
         metrics['follower']['reward'] = sum_rewards['follower']
 
-        if SAVE_DATA:
+        if save_data:
             # TODO serialize the episode trajectory for future use
             pass
 
@@ -205,7 +204,7 @@ def train(
         metrics['follower']['loss'] = losses['follower']
         wandb.log(metrics, step=epoch)
 
-        if DEBUG_PRINT:
+        if debug_print:
             print(f"ep {epoch}: {metrics}")
 
     torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch}.pth')
