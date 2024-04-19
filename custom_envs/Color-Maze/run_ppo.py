@@ -183,7 +183,6 @@ def ppo_update(
 
 def train(
         run_name: str | None = None,
-        output_dir: str = 'results',
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
         num_epochs: int = 1000,
         num_steps_per_epoch: int = 1000,
@@ -242,11 +241,11 @@ def train(
 
         if checkpoint_epochs and epoch % checkpoint_epochs == 0:
             print(f"Saving models at epoch {epoch}")
-            torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch=}.pth')
-            torch.save(follower.state_dict(), f'{output_dir}/follower_{epoch=}.pth')
+            torch.save(leader.state_dict(), f'results/{run_name}/leader_{epoch=}.pth')
+            torch.save(follower.state_dict(), f'results/{run_name}/follower_{epoch=}.pth')
 
-    torch.save(leader.state_dict(), f'{output_dir}/leader_{epoch=}.pth')
-    torch.save(follower.state_dict(), f'{output_dir}/follower_{epoch=}.pth')
+    torch.save(leader.state_dict(), f'results/{run_name}/leader_{epoch=}.pth')
+    torch.save(follower.state_dict(), f'results/{run_name}/follower_{epoch=}.pth')
 
 
 if __name__ == '__main__':
