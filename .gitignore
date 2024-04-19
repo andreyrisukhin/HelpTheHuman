@@ -163,7 +163,7 @@ cython_debug/
 #.idea/
 
 **/wandb/
-**.npy
 **.pth
+results*/
 
 .vscode/
