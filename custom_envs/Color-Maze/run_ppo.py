@@ -38,7 +38,7 @@ class ActorCritic(nn.Module):
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.shared_network = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=3, padding=0),
+            nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0),
             nn.LeakyReLU(),
             nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0),
             nn.LeakyReLU(),
