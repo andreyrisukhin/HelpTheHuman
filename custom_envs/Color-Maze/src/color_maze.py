@@ -266,12 +266,12 @@ class ColorMaze(ParallelEnv):
         shared_reward = 0
         for agent, x, y in zip(["leader", "follower"], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if self.blocks[self.goal_block.value, x, y]:
-                shared_reward = 1
+                shared_reward += 1
                 self._consume_and_spawn_block(self.goal_block.value, x, y)
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        shared_reward = -1
+                        shared_reward -= 1
                         self._consume_and_spawn_block(non_reward_block_idx, x, y)
                         break
 
