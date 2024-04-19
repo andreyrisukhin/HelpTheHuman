@@ -47,7 +47,9 @@ class ActorCritic(nn.Module):
             nn.Flatten(start_dim=1),  # flatten all dims except batch-wise
             nn.Linear(64*6*6, 192),
             nn.Tanh(),
-            nn.LSTM(192, 192, batch_first=True),
+            # No history is included in observations for now, so LSTM doesn't make sense
+            # nn.LSTM(192, 192, batch_first=True),
+            nn.Linear(192, 192)
         )
         self.policy_network = nn.Sequential(
             nn.Linear(192, 64),
@@ -65,7 +67,9 @@ class ActorCritic(nn.Module):
         )
 
     def forward(self, x):
-        features, (hidden_states, cell_states) = self.shared_network(x)
+        # Removing hidden states and cells because LSTM is replaced by Linear for now
+        # features, (hidden_states, cell_states) = self.shared_network(x)
+        features = self.shared_network(x)
         return self.policy_network(features), self.value_network(features)
 
 
