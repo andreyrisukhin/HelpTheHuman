@@ -28,11 +28,6 @@ class StepData:
     def __iter__(self):
         return iter((self.observation, self.action, self.reward, self.terminated, self.action_log_prob, self.value))
 
-"""
-TODOs
-- visualize agent actions
-- lab expectations doc / tweet thread
-"""
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
