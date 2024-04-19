@@ -70,11 +70,10 @@ class ColorMaze(ParallelEnv):
         If not overridden, spaces are inferred from self.observation_spaces and self.action_space.
         """
 
-        self.seed = seed # For inspection
-        if seed is None:
-            self.rng = np.random.default_rng()
-        else:
-            self.rng = np.random.Generator(np.random.PCG64(seed))
+        self.seed = seed  # For inspection
+        if self.seed is None:
+            self.seed = 42
+        self.rng = np.random.default_rng(seed=self.seed)
         
         self.possible_agents = ["leader", "follower"]
 
@@ -158,13 +157,21 @@ class ColorMaze(ParallelEnv):
         """
         if seed is not None:
             self.seed = seed
+        else:
+            self.seed = 42
+        self.rng = np.random.default_rng(seed=self.seed)
+
         self.agents = copy(self.possible_agents)
         self.timestep = 0
-        # TODO randomize initial locations
-        self.leader.x = Boundary.x1.value
-        self.leader.y = Boundary.y1.value
-        self.follower.x = Boundary.x2.value
-        self.follower.y = Boundary.y2.value
+
+        # Randomize initial locations
+        self.leader.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+        self.leader.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
+        self.follower.x = self.leader.x
+        self.follower.y = self.leader.y
+        while (self.follower.x, self.follower.y) == (self.leader.x, self.leader.y):
+            self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+            self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
         self.blocks = np.zeros((3, xBoundary, yBoundary))
 
