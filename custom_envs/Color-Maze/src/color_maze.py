@@ -94,7 +94,7 @@ class ColorMaze(ParallelEnv):
             # "observation": Box(low=self._RED_ID, high=IDs.FOLLOWER.value, shape=(xBoundary, yBoundary), dtype=np.int32),
             # "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
         # })
-        self._n_channels = 1  # unused at the moment
+        self._n_channels = self.blocks.shape[0] + 2  # 1 channel for each block color + 1 for each agent
         self._observation_space = Box(low=0, high=len(IDs), shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
 
         self.observation_spaces = {
@@ -113,31 +113,27 @@ class ColorMaze(ParallelEnv):
         """
         Converts the internal state of the environment into an observation that can be used by the agent.
         
-        The observation is a 2D numpy array where each cell represents the state of that cell in the maze. The possible values are:
-        - 0: Empty cell
-        - 1: Red block
-        - 2: Blue block
-        - 3: Green block
-        - 4: Leader agent
-        - 5: Follower agent
-        AHA, this is different from what we were using! AR now transitioning to enum, resolve this 0 as empty. 
+        The observation is a 3D numpy array where each cell (0 or 1) represents the presence of an object in that cell in the maze.
+        The dimensions are based on IDs values:
+        - 0: Red block
+        - 1: Blue block
+        - 2: Green block
+        - 3: Leader agent
+        - 4: Follower agent
 
-        The observation is constructed by first creating 3 separate 2D arrays to represent the red, blue, and green blocks. These are then combined into a single observation array, and the positions of the leader and follower agents are set in the appropriate cells.
-        
         Returns:
-            numpy.ndarray: The 2D observation array.
+            numpy.ndarray: The observation array.
         """
-        # Add 1 to IDs to allow 0 to be empty space
-        red_vals = np.where(self.blocks[IDs.RED.value], IDs.RED.value + 1, 0)
-        blue_vals = np.where(self.blocks[IDs.BLUE.value], IDs.BLUE.value + 1, 0)
-        green_vals = np.where(self.blocks[IDs.GREEN.value], IDs.GREEN.value + 1, 0)
-        observation = red_vals + blue_vals + green_vals
-        observation[self.leader.x, self.leader.y] = IDs.LEADER.value + 1
-        observation[self.follower.x, self.follower.y] = IDs.FOLLOWER.value + 1
+        leader_position = np.zeros((1, xBoundary, yBoundary))
+        follower_position = np.zeros((1, xBoundary, yBoundary))
+        leader_position[0, self.leader.x, self.leader.y] = 1
+        follower_position[0, self.follower.x, self.follower.y] = 1
+
+        observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
+
         # Ensure that observation is a 2d array
-        assert observation.ndim == 2
-        assert observation.shape == (xBoundary, yBoundary)
-        observation = observation.reshape((self._n_channels, xBoundary, yBoundary))
+        assert observation.ndim == 3
+        assert observation.shape == (self._n_channels, xBoundary, yBoundary)
         return observation.astype(np.int32)
 
     def set_state_to_observation(self, observation: np.ndarray):
@@ -147,14 +143,12 @@ class ColorMaze(ParallelEnv):
         *Overrides* the current env state with the given observation.
         """
         # Add 1 to IDs because 0 is empty space
-        red_places = np.where(observation == IDs.RED.value + 1, 1, 0).reshape((xBoundary, yBoundary))
-        blue_places = np.where(observation == IDs.BLUE.value + 1, 1, 0).reshape((xBoundary, yBoundary))
-        green_places = np.where(observation == IDs.GREEN.value + 1, 1, 0).reshape((xBoundary, yBoundary))
-        leader_places = np.where(observation == IDs.LEADER.value + 1, 1, 0).reshape((xBoundary, yBoundary))
-        follower_places = np.where(observation == IDs.FOLLOWER.value + 1, 1, 0).reshape((xBoundary, yBoundary))
+        leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
+        follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
         assert follower_places.sum() == 1
-        self.blocks = np.stack((red_places, blue_places, green_places))
+        self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
+        assert self.blocks.shape == (3, xBoundary, yBoundary)
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
         self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
@@ -272,12 +266,12 @@ class ColorMaze(ParallelEnv):
         shared_reward = 0
         for agent, x, y in zip(["leader", "follower"], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if self.blocks[self.goal_block.value, x, y]:
-                shared_reward = 1
+                shared_reward += 1
                 self._consume_and_spawn_block(self.goal_block.value, x, y)
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        shared_reward = -1
+                        shared_reward -= 1
                         self._consume_and_spawn_block(non_reward_block_idx, x, y)
                         break
 
