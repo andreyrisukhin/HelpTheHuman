@@ -124,10 +124,10 @@ class ColorMaze(ParallelEnv):
         Returns:
             numpy.ndarray: The observation array.
         """
-        leader_position = np.zeros((xBoundary, yBoundary))
-        follower_position = np.zeros((xBoundary, yBoundary))
-        leader_position[self.leader.x, self.leader.y] = 1
-        follower_position[self.follower.x, self.follower.y] = 1
+        leader_position = np.zeros((1, xBoundary, yBoundary))
+        follower_position = np.zeros((1, xBoundary, yBoundary))
+        leader_position[0, self.leader.x, self.leader.y] = 1
+        follower_position[0, self.follower.x, self.follower.y] = 1
 
         observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
 
@@ -143,8 +143,8 @@ class ColorMaze(ParallelEnv):
         *Overrides* the current env state with the given observation.
         """
         # Add 1 to IDs because 0 is empty space
-        leader_places = observation[IDs.LEADER.value]
-        follower_places = observation[IDs.FOLLOWER.value]
+        leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
+        follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
         assert follower_places.sum() == 1
         self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
