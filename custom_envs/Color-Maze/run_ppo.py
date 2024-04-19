@@ -196,6 +196,7 @@ def train(
 ):
     if log_to_wandb:
         wandb.init(entity='kavel', project='help-the-human', name=run_name)
+    os.makedirs(f'results/{run_name}', exist_ok=True)
 
     env = color_maze.ColorMaze()
 
