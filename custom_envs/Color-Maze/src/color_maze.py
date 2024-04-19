@@ -94,7 +94,7 @@ class ColorMaze(ParallelEnv):
             # "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
         # })
         self._n_channels = self.blocks.shape[0] + 2  # 1 channel for each block color + 1 for each agent
-        self._observation_space = Box(low=0, high=len(IDs), shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
+        self._observation_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
 
         self.observation_spaces = {
             agent: self._observation_space
