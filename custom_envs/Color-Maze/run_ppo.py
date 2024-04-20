@@ -74,10 +74,8 @@ class ActorCritic(nn.Module):
         features = self.shared_network(x)
         return self.policy_network(features), self.value_network(features)
 
-
     def get_value(self, x):
         return self.value_network(self.shared_network(x))
-
 
     def get_action_and_value(self, x, action=None):
         logits, value = self(x)
