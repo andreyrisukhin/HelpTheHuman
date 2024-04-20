@@ -107,8 +107,21 @@ def step(
         max_grad_norm: float,
         target_kl: float | None,
 ) -> dict[str, StepData]:
-    all_observations = {agent: torch.zeros((num_steps, len(envs)) + envs[0].observation_space(agent).shape).to(DEVICE) for agent in models}
-    all_actions = {agent: torch.zeros((num_steps, len(envs)) + envs[0].action_space(agent).shape).to(DEVICE) for agent in models}
+    observation_space_shapes = {
+        agent: envs[0].observation_space(agent).shape
+        for agent in models
+    }
+    observation_space_shapes = {key: value for key, value in observation_space_shapes.items() if value is not None}
+    assert len(observation_space_shapes) == len(models)
+    action_space_shapes = {
+        agent: envs[0].action_space(agent).shape
+        for agent in models
+    }
+    action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
+    assert len(action_space_shapes) == len(models)
+
+    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(DEVICE) for agent in models}
+    all_actions = {agent: torch.zeros((num_steps, len(envs)) + action_space_shapes[agent]).to(DEVICE) for agent in models}
     all_logprobs = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_rewards = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
@@ -167,9 +180,9 @@ def step(
             returns = advantages + all_values[agent]
 
         # flatten the batch
-        b_obs = all_observations[agent].reshape((-1,) + envs[0].observation_space(agent).shape)
+        b_obs = all_observations[agent].reshape((-1,) + observation_space_shapes[agent])
         b_logprobs = all_logprobs[agent].reshape(-1)
-        b_actions = all_actions[agent].reshape((-1,) + envs[0].action_space(agent).shape)
+        b_actions = all_actions[agent].reshape((-1,) + action_space_shapes[agent])
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = all_values[agent].reshape(-1)
