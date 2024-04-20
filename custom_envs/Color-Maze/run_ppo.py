@@ -267,8 +267,8 @@ def train(
         max_grad_norm: float = 0.5,  # max gradnorm for gradient clipping
         target_kl: float | None = None,  # target KL divergence threshold
         # Config params
-        save_data_epochs: int = 100,
-        checkpoint_epochs: int = 0,
+        save_data_iters: int = 100,
+        checkpoint_iters: int = 0,
         debug_print: bool = False,
         log_to_wandb: bool = True,
         seed: int = 42,
@@ -327,7 +327,7 @@ def train(
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
 
-        if save_data_epochs and iteration % save_data_epochs == 0:
+        if save_data_iters and iteration % save_data_iters == 0:
             observation_states = step_results['leader'].observations.transpose(0, 1)  # Transpose so the dims are (env, step, ...observation_shape)
             for i in range(observation_states.size(0)):
                 trajectory = observation_states[i].numpy()
@@ -338,7 +338,7 @@ def train(
             print(step_results)
             print(f"iter {iteration}: {metrics}")
 
-        if checkpoint_epochs and iteration % checkpoint_epochs == 0:
+        if checkpoint_iters and iteration % checkpoint_iters == 0:
             print(f"Saving models at epoch {iteration}")
             torch.save(leader.state_dict(), f'results/{run_name}/leader_{iteration=}.pth')
             torch.save(follower.state_dict(), f'results/{run_name}/follower_{iteration=}.pth')
