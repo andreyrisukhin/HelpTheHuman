@@ -3,17 +3,15 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
-from typing import Any, Mapping
+from typing import Mapping, Sequence
 from dataclasses import dataclass
 import wandb
 from fire import Fire
 from tqdm import tqdm
 import os
+from pettingzoo import ParallelEnv
 
-
-from replay_trajectory import replay_trajectory
-
-from src import color_maze
+from src.color_maze import ColorMaze
 
 @dataclass
 class StepData:
@@ -90,7 +88,7 @@ class ActorCritic(nn.Module):
 
 
 def step(
-        envs: list[color_maze.ColorMaze],
+        envs: Sequence[ParallelEnv],
         models: Mapping[str, ActorCritic],
         optimizers: Mapping[str, optim.Optimizer],
         num_steps: int,
@@ -299,7 +297,7 @@ def train(
     minibatch_size = batch_size // num_minibatches
     num_iterations = total_timesteps // batch_size
 
-    envs = [color_maze.ColorMaze() for _ in range(num_envs)]
+    envs = [ColorMaze() for _ in range(num_envs)]
 
     # Observation and action spaces are the same for leader and follower
     obs_space = envs[0].observation_space('leader')
