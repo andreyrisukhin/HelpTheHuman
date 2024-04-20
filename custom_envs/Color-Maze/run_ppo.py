@@ -332,14 +332,14 @@ def train(
             target_kl=target_kl
         )
 
+        metrics = {}
+        for agent, results in step_results.items():
+            metrics[agent] = {
+                'loss': results.loss,
+                'explained_var': results.explained_var,
+                'reward': results.rewards.sum(dim=0).mean()  # Sum along step dim and average along env dim
+            }
 
-        metrics = {'leader': {}, 'follower': {}}
-        metrics['leader']['loss'] = step_results['leader'].loss
-        metrics['follower']['loss'] = step_results['follower'].loss
-        metrics['leader']['explained_var'] = step_results['leader'].explained_var
-        metrics['follower']['explained_var'] = step_results['follower'].explained_var
-        metrics['leader']['reward'] = step_results['leader'].rewards.sum(dim=0).mean()  # Sum along step dim and average along env dim
-        metrics['follower']['reward'] = step_results['follower'].rewards.sum(dim=0).mean()  # Sum along step dim and average along env dim
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
 
@@ -355,11 +355,11 @@ def train(
 
         if checkpoint_iters and iteration % checkpoint_iters == 0:
             print(f"Saving models at epoch {iteration}")
-            torch.save(leader.state_dict(), f'results/{run_name}/leader_{iteration=}.pth')
-            torch.save(follower.state_dict(), f'results/{run_name}/follower_{iteration=}.pth')
+            for agent_name, model in models.items():
+                torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
 
-    torch.save(leader.state_dict(), f'results/{run_name}/leader_{iteration=}.pth')
-    torch.save(follower.state_dict(), f'results/{run_name}/follower_{iteration=}.pth')
+    for agent_name, model in models.items():
+        torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
 
 
 if __name__ == '__main__':
