@@ -133,7 +133,7 @@ class ColorMaze(ParallelEnv):
         # Ensure that observation is a 2d array
         assert observation.ndim == 3
         assert observation.shape == (self._n_channels, xBoundary, yBoundary)
-        return observation.astype(np.int32)
+        return observation.astype(np.float32)
 
     def set_state_to_observation(self, observation: np.ndarray):
         """
