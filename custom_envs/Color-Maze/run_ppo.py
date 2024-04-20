@@ -107,6 +107,9 @@ def step(
         max_grad_norm: float,
         target_kl: float | None,
 ) -> dict[str, StepData]:
+    """
+    Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
+    """
     observation_space_shapes = {
         agent: envs[0].observation_space(agent).shape
         for agent in models
