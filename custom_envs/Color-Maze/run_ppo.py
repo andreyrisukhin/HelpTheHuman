@@ -296,6 +296,8 @@ def train(
     models = {'leader': leader, 'follower': follower}
     optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
+    print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
+
     for iteration in tqdm(range(num_iterations), total=num_iterations):
         step_results = step(
             envs=envs,
@@ -335,7 +337,6 @@ def train(
                 np.save(f"trajectories/{run_name}/trajectory_{iteration=}_env={i}.npy", trajectory)
 
         if debug_print:
-            print(step_results)
             print(f"iter {iteration}: {metrics}")
 
         if checkpoint_iters and iteration % checkpoint_iters == 0:
