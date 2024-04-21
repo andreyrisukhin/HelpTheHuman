@@ -6,13 +6,11 @@ The follower can do the same. If the follower moves into a different color, scor
 Spawn: leader in top left, follower in bottom right. Blocks in random locations, not over other entities.
 Movement: leader and follower share moveset, one grid up, down, left, right.
 """
-
-import functools
-# import random
 from copy import copy
 
 import numpy as np
-from gymnasium.spaces import Discrete, MultiDiscrete, Box, Space, Dict
+from gymnasium.spaces import Discrete, MultiDiscrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
+from gymnasium.spaces import Dict # Composite Spaces - Dict is best for fixed number of unordered spaces.
 
 from pettingzoo import ParallelEnv
 
@@ -43,7 +41,6 @@ class Agent:
     '''Agent class to store x and y coordinates of the agent. Automatically creates __init__ and __repr__ methods.'''
     x: int
     y: int
-
 
 class ColorMaze(ParallelEnv):
     """The metadata holds environment constants.
@@ -79,6 +76,10 @@ class ColorMaze(ParallelEnv):
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         goal_block_space = Discrete(3)  # Red, Green, Blue
         self._observation_space = board_space # TODO add history of leader information
+        observation_space_with_goal = Dict({
+            "observation": board_space,
+            "goal_block": goal_block_space # TODO ensure this is only visible to the leader, follower should have this either absent or masked out.
+        })
 
         # Spaces
         self.observation_spaces = {
