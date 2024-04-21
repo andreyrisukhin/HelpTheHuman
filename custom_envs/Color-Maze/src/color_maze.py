@@ -55,21 +55,10 @@ class ColorMaze(ParallelEnv):
     }
 
     def __init__(self, seed=None):
-        """The init method takes in environment arguments.
-        
-        Defines the following attributes:
-        - possible agents (leader, follower)
-        - leader coordinates (x,y)
-        - follower coordinates (x,y)
-        - red blocks [(x,y), (x,y), ...]
-        - green blocks [(x,y), (x,y), ...]
-        - blue blocks [(x,y), (x,y), ...]
-        - timestep
-
-        Spaces are defined in the action_space and observation_spaces methods.
-        If not overridden, spaces are inferred from self.observation_spaces and self.action_space.
+        """Initializes the environment's random seed and sets up the environment.
         """
 
+        # Randomness
         self.seed = seed  # For inspection
         if self.seed is None:
             self.seed = 42
@@ -78,18 +67,20 @@ class ColorMaze(ParallelEnv):
         self.goal_block = IDs.RED
         self.prob_block_switch = 0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
 
+        # Agents
         self.possible_agents = ["leader", "follower"]
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+        self._action_space = Discrete(4)  # Moves: Up, Down, Left, Right
 
-        # Inv: for all (x, y) coordinates, no two slices are non-zero
+        # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((3, xBoundary, yBoundary))
-        self.timestep = 0
-        self._MAX_TIMESTEPS = 1000
-        self._action_space = Discrete(4)
-        self._n_channels = self.blocks.shape[0] + 2  # 1 channel for each block color + 1 for each agent
-        self._observation_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
+        self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
+        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
+        goal_block_space = Discrete(3)  # Red, Green, Blue
+        self._observation_space = board_space # TODO add history of leader information
 
+        # Spaces
         self.observation_spaces = {
             agent: self._observation_space
             for agent in self.possible_agents
@@ -101,6 +92,10 @@ class ColorMaze(ParallelEnv):
 
         self.observation_space = lambda agent: self._observation_space
         self.action_space = lambda agent: self._action_space
+
+        # Environment duration
+        self.timestep = 0
+        self._MAX_TIMESTEPS = 1000
 
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
@@ -138,7 +133,7 @@ class ColorMaze(ParallelEnv):
         """
         Converts the format returned from _convert_to_observation
         into the internal env state representation.
-        *Overrides* the current env state with the given observation.
+        *Overrides* [!] the current env state with the given observation.
         """
         # Add 1 to IDs because 0 is empty space
         leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
@@ -151,9 +146,7 @@ class ColorMaze(ParallelEnv):
         self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
     def reset(self, *, seed=None, options=None):
-        """Reset the environment to a starting point.
-        
-        """
+        """Reset the environment to a starting point."""
         if seed is not None:
             self.seed = seed
         else:
@@ -226,7 +219,7 @@ class ColorMaze(ParallelEnv):
 
         def _move(x, y, action):
             """
-            Always call _move for the leader first in a given timestep
+            Always call _move for the leader first in a given timestep. The leader is favored in collisions with follower. 
             """
             new_x, new_y = x, y
             if action == Moves.UP.value and y < Boundary.y2.value:
