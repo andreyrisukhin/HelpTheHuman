@@ -75,24 +75,18 @@ class ColorMaze(ParallelEnv):
             self.seed = 42
         self.rng = np.random.default_rng(seed=self.seed)
         
-        self.possible_agents = ["leader", "follower"]
+        self.goal_block = IDs.RED
+        self.prob_block_switch = 0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
 
+        self.possible_agents = ["leader", "follower"]
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
 
-        # self.leader.x = None
-        # self.leader.y = None
-        # self.follower.x = None
-        # self.follower.y = None
         # Inv: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((3, xBoundary, yBoundary))
         self.timestep = 0
         self._MAX_TIMESTEPS = 1000
         self._action_space = Discrete(4)
-        # self._observation_space = Dict({
-            # "observation": Box(low=self._RED_ID, high=IDs.FOLLOWER.value, shape=(xBoundary, yBoundary), dtype=np.int32),
-            # "action_mask": MultiDiscrete(4 * [2], dtype=np.int32) # [2, 2, 2, 2] represents 4 dimensions, 2 values each as the action space.
-        # })
         self._n_channels = self.blocks.shape[0] + 2  # 1 channel for each block color + 1 for each agent
         self._observation_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
 
@@ -107,6 +101,11 @@ class ColorMaze(ParallelEnv):
 
         self.observation_space = lambda agent: self._observation_space
         self.action_space = lambda agent: self._action_space
+
+    def _randomize_goal_block(self): 
+        if self.rng.random() < self.prob_block_switch:
+            random_idx = self.rng.integers(len([IDs.RED, IDs.GREEN, IDs.BLUE])) # We only want to switch between the 3 colors, not the other spaces.
+            self.goal_block = IDs(random_idx)
 
     def _convert_to_observation(self):
         """
@@ -181,15 +180,9 @@ class ColorMaze(ParallelEnv):
             self._consume_and_spawn_block(IDs.GREEN.value, 0, 0)
             self._consume_and_spawn_block(IDs.BLUE.value, 0, 0)
         
-        self.goal_block = IDs.RED  # TODO to introduce non-stationarity, change this at some point
+        self._randomize_goal_block()
 
         observation = self._convert_to_observation()
-        # observations = {
-            # # Leader starts in bottom left, so can't go down or left
-            # 'leader': {'observation': observation, 'action_mask': np.array([1, 0, 0, 1], dtype=np.int32)},
-            # # Follower starts in top right, so can't go up or right
-            # 'follower': {'observation': observation, 'action_mask': np.array([0, 1, 1, 0], dtype=np.int32)}
-        # }
         observations = {
             agent: observation
             for agent in self.agents
@@ -202,10 +195,7 @@ class ColorMaze(ParallelEnv):
     def _consume_and_spawn_block(self, color_idx:int, x:int, y:int) -> None:
         self.blocks[color_idx, x, y] = 0
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
-        # Also make sure no other color is present there
-        
-        # self.seed
-
+        # Also make sure no other color is present there      
         zero_indices = np.argwhere(np.all((self.blocks == 0), axis=0))
         self.rng.shuffle(zero_indices)
         for x,y in zero_indices:
@@ -256,6 +246,8 @@ class ColorMaze(ParallelEnv):
         self.leader.x, self.leader.y = _move(self.leader.x, self.leader.y, leader_action)
         self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
 
+        self._randomize_goal_block()
+
         # Make action masks
         leader_action_mask = np.ones(4)
         follower_action_mask = np.ones(4)
@@ -293,7 +285,6 @@ class ColorMaze(ParallelEnv):
         # Get dummy infos (not used in this example)
         infos = {a: {} for a in self.agents}
 
-
         # Formatting by agent for the return types
         terminateds = {a: termination for a in self.agents}
 
@@ -301,10 +292,6 @@ class ColorMaze(ParallelEnv):
             self.agents = []
 
         observation = self._convert_to_observation()
-        # observations = {
-            # 'leader': {'observation': observation, 'action_mask': leader_action_mask},
-            # 'follower': {'observation': observation, 'action_mask': follower_action_mask}
-        # }
         observations = {
             agent: observation
             for agent in self.agents
