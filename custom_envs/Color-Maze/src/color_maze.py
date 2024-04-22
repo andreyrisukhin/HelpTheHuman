@@ -52,11 +52,14 @@ class ColorMazeRewards():
     
     Invariant [!]: All reward shaping functions take args: agents dictionary, rewards dictionary; and return the rewards dictionary.'''
 
-    def __init__(self, close_threshold:int=10) -> None:
+    def __init__(self, close_threshold:int=10, timestep_expiry:int=500) -> None:
         self.close_threshold = close_threshold
+        self.timestep_expiry = timestep_expiry
 
-    def penalize_follower_close_to_leader(self, agents:Dict[str, Agent], rewards):
+    def penalize_follower_close_to_leader(self, agents:Dict[str, Agent], rewards, step:int):
         '''Penalize the follower if it is close to the leader.'''
+        if step > self.timestep_expiry:
+            return rewards
         leader = agents["leader"]
         follower = agents["follower"]
         if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
@@ -288,7 +291,7 @@ class ColorMaze(ParallelEnv):
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, self.timestep)
 
         # Check termination conditions
         termination = False
