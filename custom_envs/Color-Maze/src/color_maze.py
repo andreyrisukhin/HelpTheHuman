@@ -14,6 +14,7 @@ from gymnasium.spaces import Dict # Composite Spaces - Dict is best for fixed nu
 
 from pettingzoo import ParallelEnv
 
+from typing import List, Callable, Dict
 from dataclasses import dataclass
 from enum import Enum
 class Moves(Enum):
@@ -42,6 +43,20 @@ class Agent:
     x: int
     y: int
 
+class ColorMazeRewards():
+    '''Class to organize reward functions for the ColorMaze environment.'''
+
+    def __init__(self, close_threshold:int=10) -> None:
+        self.close_threshold = close_threshold
+
+    def penalize_follower_close_to_leader(self, agents:Dict[str, Agent], rewards):
+        '''Penalize the follower if it is close to the leader.'''
+        leader = agents["leader"]
+        follower = agents["follower"]
+        if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
+            rewards["follower"] -= 1 # TODO could shape this curve, rather than Relu.
+        return rewards
+
 class ColorMaze(ParallelEnv):
     """The metadata holds environment constants.
     
@@ -51,8 +66,10 @@ class ColorMaze(ParallelEnv):
         "name:": "color_maze_v0",
     }
 
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, reward_shaping_fns:List[Callable]=[]):
         """Initializes the environment's random seed and sets up the environment.
+
+        reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
         """
 
         # Randomness
@@ -76,7 +93,7 @@ class ColorMaze(ParallelEnv):
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         goal_block_space = Discrete(3)  # Red, Green, Blue
         self._observation_space = board_space # TODO add history of leader information
-        observation_space_with_goal = Dict({
+        observation_space_with_goal = dict({
             "observation": board_space,
             "goal_block": goal_block_space # TODO ensure this is only visible to the leader, follower should have this either absent or masked out.
         })
@@ -97,6 +114,9 @@ class ColorMaze(ParallelEnv):
         # Environment duration
         self.timestep = 0
         self._MAX_TIMESTEPS = 1000
+
+        # Reward shaping
+        self.reward_shaping_fns = reward_shaping_fns
 
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
@@ -203,17 +223,7 @@ class ColorMaze(ParallelEnv):
 
     def step(self, actions):
         """
-        Takes an action for current agent (specified by agent selection)
-
-        Update the following:
-        - timestep
-        - infos
-        - rewards
-        - leader x and y
-        - follower x and y
-        - terminations
-        - truncations
-        - Any internal state used by observe() or render()
+        Takes an action for all agents in environment, and assigns rewards.
         """
         leader_action = actions["leader"]
         follower_action = actions["follower"]
@@ -266,9 +276,13 @@ class ColorMaze(ParallelEnv):
                     if self.blocks[non_reward_block_idx, x, y]:
                         shared_reward -= 1
                         self._consume_and_spawn_block(non_reward_block_idx, x, y)
-                        break
+                        break # TODO ASK, why do we break here? Don't we want to process ALL non-reward blocks?
 
         rewards = {'leader': shared_reward, 'follower': shared_reward}
+
+        # Apply reward shaping
+        for reward_shaping_function in self.reward_shaping_fns:
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards)
 
         # Check termination conditions
         termination = False
@@ -281,7 +295,6 @@ class ColorMaze(ParallelEnv):
 
         # Formatting by agent for the return types
         terminateds = {a: termination for a in self.agents}
-
         if termination:
             self.agents = []
 
