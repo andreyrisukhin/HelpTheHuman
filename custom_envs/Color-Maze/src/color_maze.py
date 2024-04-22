@@ -44,7 +44,13 @@ class Agent:
     y: int
 
 class ColorMazeRewards():
-    '''Class to organize reward functions for the ColorMaze environment.'''
+    '''Class to organize reward functions for the ColorMaze environment.
+    
+    tldr: 
+        To define new reward_shaping_function, go to color_maze.ColorMazeRewards and add it there. 
+        To use them, go to run_ppo.py and when initializing a ColorMaze() environment, init as ColorMaze(reward_shaping_fns=[REWARD_SHAPINGS_HERE])
+    
+    Invariant [!]: All reward shaping functions take args: agents dictionary, rewards dictionary; and return the rewards dictionary.'''
 
     def __init__(self, close_threshold:int=10) -> None:
         self.close_threshold = close_threshold
