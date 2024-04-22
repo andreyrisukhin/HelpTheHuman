@@ -346,6 +346,7 @@ def train(
         if save_data_iters and iteration % save_data_iters == 0:
             observation_states = step_results['leader'].observations.transpose(0, 1)  # Transpose so the dims are (env, step, ...observation_shape)
             for i in range(observation_states.size(0)):
+                # TODO this will need to be updated once the leader can see true reward. We ought to log it too, to see when it changes during inspection.
                 trajectory = observation_states[i].numpy()
                 os.makedirs(f'trajectories/{run_name}', exist_ok=True)
                 np.save(f"trajectories/{run_name}/trajectory_{iteration=}_env={i}.npy", trajectory)

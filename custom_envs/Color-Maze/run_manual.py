@@ -26,6 +26,6 @@ if __name__ == "__main__":
 
         os.system('cls' if os.name == 'nt' else 'clear')
         env.render()
-        print(f'Score: {score} | Goal: {env.goal_block}')
+        print(f'Score: {score} | Goal: {env.goal_block} | Reward Shaping: {env.reward_shaping_fns}') # The reward functions will probably not print nicely. TODO print their names.
 
     env.close()
