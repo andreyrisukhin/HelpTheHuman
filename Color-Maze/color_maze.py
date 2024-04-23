@@ -11,6 +11,7 @@ from copy import copy
 import numpy as np
 from gymnasium.spaces import Discrete, MultiDiscrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
 from gymnasium.spaces import Dict # Composite Spaces - Dict is best for fixed number of unordered spaces.
+from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best for fixed number of unordered spaces.
 
 from pettingzoo import ParallelEnv
 
@@ -74,7 +75,7 @@ class ColorMaze(ParallelEnv):
         "name:": "color_maze_v0",
     }
 
-    def __init__(self, seed=None, reward_shaping_fns:List[Callable]=[]):
+    def __init__(self, seed=None, reward_shaping_fns:List[Callable]=[], history_length:int=1):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -115,11 +116,11 @@ class ColorMaze(ParallelEnv):
         goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
         
         self.observation_spaces = dict({ # Python dict, not gym spaces Dict.
-            "leader": Dict({ # type: ignore
+            "leader": DictSpace({
                 "observation": board_space,
                 "goal_info": goal_block_space
             }), 
-            "follower": Dict({ # type: ignore
+            "follower": DictSpace({
                 "observation": board_space,
                 "goal_info": goal_block_space
             })
@@ -131,6 +132,9 @@ class ColorMaze(ParallelEnv):
 
         # Reward shaping
         self.reward_shaping_fns = reward_shaping_fns
+
+        # History stored for both Leader and Follower
+        self.history_length = history_length # TODO can seperate per agent later
 
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
