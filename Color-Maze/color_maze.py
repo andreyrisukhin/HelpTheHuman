@@ -98,9 +98,11 @@ class ColorMaze(ParallelEnv):
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((3, xBoundary, yBoundary))
+        self.blocks_history = np.zeros((history_length, 3, xBoundary, yBoundary)) 
+        
         # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
-        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
+        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary, self.history_length), dtype=np.int32)
         goal_block_space = Discrete(3)  # Red, Green, Blue
         self._observation_space = board_space # TODO add history of leader information
         observation_space_with_goal = dict({
@@ -112,9 +114,10 @@ class ColorMaze(ParallelEnv):
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         goal_block_space = MultiDiscrete([2, 2, 2])  # Red, Green, Blue
         
-        goal_info = np.zeros((3))
-        goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
-        
+        self.goal_info = np.zeros((3))
+        self.goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
+        self.goal_history = np.zeros((history_length, 3, xBoundary, yBoundary))
+
         self.observation_spaces = dict({ # Python dict, not gym spaces Dict.
             "leader": DictSpace({
                 "observation": board_space,
@@ -136,6 +139,7 @@ class ColorMaze(ParallelEnv):
         # History stored for both Leader and Follower
         self.history_length = history_length # TODO can seperate per agent later
 
+
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
             random_idx = self.rng.integers(NUM_COLORS)
@@ -154,11 +158,28 @@ class ColorMaze(ParallelEnv):
         follower_position = np.zeros((1, xBoundary, yBoundary))
         leader_position[0, self.leader.x, self.leader.y] = 1
         follower_position[0, self.follower.x, self.follower.y] = 1
+
+        """
+        CONTINUE
+
+        pretty sure these changes should do it:
+            edit board_space to have an additional dimension for history: https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/color_maze.py#L103
+            add class fields self.blocks_history and self.goal_info_history which are the shape of self.blocks and self.goal_info plus a time dimension of size history_length (OR just directly modify the shapes of the original fields)
+            
+            CONTINUE > make _convert_to_observation return an array of shape (history_length, _n_channels, xBoundary, yBoundary) accordingly
+            
+            edit nn.Flatten to NOT flatten the time dimension https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L51
+            maybe need to edit the shape of the following linear layer, i'm not 100% sure about this one -- would need to run and see what happens https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L54
+            LSTM should just work because now the shape would be (batch_size, history_length, flattened_dims) which is the shape that torch LSTM expects when batch_first=True https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L56
+
+        """
+
+        # TODO modify this to use self.blocks_history
         observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
                 
         # Ensure that observation is a 2d array
-        assert observation.ndim == 3
-        assert observation.shape == (self._n_channels, xBoundary, yBoundary)
+        assert observation.ndim == 4
+        assert observation.shape == (self.history_length, self._n_channels, xBoundary, yBoundary)
         return observation.astype(np.float32)
 
     def set_state_to_observation(self, observation: np.ndarray):
