@@ -1,8 +1,8 @@
 from pettingzoo.test import parallel_api_test
 import os
 
-from src.color_maze import ColorMaze
-from src.manual_policy import ManualPolicy
+from color_maze import ColorMaze
+from manual_policy import ManualPolicy
 
 
 if __name__ == "__main__":

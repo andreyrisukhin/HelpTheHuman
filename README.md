@@ -14,6 +14,8 @@ pip freeze > requirements.txt
 
 ## Citation for PettingZoo
 
+https://pettingzoo.farama.org/tutorials/custom_environment/1-project-structure/
+
 To cite PettingZoo in publication, please use
 
 ```

@@ -30,6 +30,7 @@ class Boundary(Enum):
     y2 = 31
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
+NUM_COLORS = 3
 class IDs(Enum):
     RED = 0
     BLUE = 1
@@ -67,9 +68,7 @@ class ColorMazeRewards():
         return rewards
 
 class ColorMaze(ParallelEnv):
-    """The metadata holds environment constants.
-    
-    The "name" metadata allows the environment to be pretty printed.
+    """The "name" metadata allows the environment to be pretty printed.
     """
     metadata = {
         "name:": "color_maze_v0",
@@ -94,10 +93,11 @@ class ColorMaze(ParallelEnv):
         self.possible_agents = ["leader", "follower"]
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
-        self._action_space = Discrete(4)  # Moves: Up, Down, Left, Right
+        self.action_space = Discrete(4)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((3, xBoundary, yBoundary))
+        # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         goal_block_space = Discrete(3)  # Red, Green, Blue
@@ -108,17 +108,22 @@ class ColorMaze(ParallelEnv):
         })
 
         # Spaces
-        self.observation_spaces = {
-            agent: self._observation_space
-            for agent in self.possible_agents
-        }
-        self.action_spaces = {
-            agent: self._action_space
-            for agent in self.possible_agents
-        }
-
-        self.observation_space = lambda agent: self._observation_space
-        self.action_space = lambda agent: self._action_space
+        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
+        goal_block_space = MultiDiscrete([2, 2, 2])  # Red, Green, Blue
+        
+        goal_info = np.zeros((3))
+        goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
+        
+        self.observation_spaces = dict({ # Python dict, not gym spaces Dict.
+            "leader": Dict({ # type: ignore
+                "observation": board_space,
+                "goal_info": goal_block_space
+            }), 
+            "follower": Dict({ # type: ignore
+                "observation": board_space,
+                "goal_info": goal_block_space
+            })
+        })
 
         # Environment duration
         self.timestep = 0
@@ -129,7 +134,7 @@ class ColorMaze(ParallelEnv):
 
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
-            random_idx = self.rng.integers(len([IDs.RED, IDs.GREEN, IDs.BLUE])) # We only want to switch between the 3 colors, not the other spaces.
+            random_idx = self.rng.integers(NUM_COLORS)
             self.goal_block = IDs(random_idx)
 
     def _convert_to_observation(self):
@@ -137,12 +142,6 @@ class ColorMaze(ParallelEnv):
         Converts the internal state of the environment into an observation that can be used by the agent.
         
         The observation is a 3D numpy array where each cell (0 or 1) represents the presence of an object in that cell in the maze.
-        The dimensions are based on IDs values:
-        - 0: Red block
-        - 1: Blue block
-        - 2: Green block
-        - 3: Leader agent
-        - 4: Follower agent
 
         Returns:
             numpy.ndarray: The observation array.
@@ -151,9 +150,8 @@ class ColorMaze(ParallelEnv):
         follower_position = np.zeros((1, xBoundary, yBoundary))
         leader_position[0, self.leader.x, self.leader.y] = 1
         follower_position[0, self.follower.x, self.follower.y] = 1
-
         observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
-
+                
         # Ensure that observation is a 2d array
         assert observation.ndim == 3
         assert observation.shape == (self._n_channels, xBoundary, yBoundary)
@@ -165,7 +163,6 @@ class ColorMaze(ParallelEnv):
         into the internal env state representation.
         *Overrides* [!] the current env state with the given observation.
         """
-        # Add 1 to IDs because 0 is empty space
         leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
         follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
@@ -206,9 +203,18 @@ class ColorMaze(ParallelEnv):
         self._randomize_goal_block()
 
         observation = self._convert_to_observation()
+        goal_info = np.zeros(3)
+        goal_info[self.goal_block.value] = 1
+
         observations = {
-            agent: observation
-            for agent in self.agents
+            "leader": {
+                "observation": observation,
+                "goal_info": goal_info
+            },
+            "follower": {
+                "observation": observation,
+                "goal_info": np.zeros(3)
+            }
         }
 
         # Get dummy info, necessary for proper parallel_to_aec conversion
@@ -308,9 +314,18 @@ class ColorMaze(ParallelEnv):
             self.agents = []
 
         observation = self._convert_to_observation()
+        goal_info = np.zeros(3)
+        goal_info[self.goal_block.value] = 1
+
         observations = {
-            agent: observation
-            for agent in self.agents
+            "leader": {
+                "observation": observation,
+                "goal_info": goal_info
+            },
+            "follower": {
+                "observation": observation,
+                "goal_info": np.zeros(3)
+            }
         }
         truncateds = terminateds
         return observations, rewards, terminateds, truncateds, infos
@@ -333,3 +348,4 @@ class ColorMaze(ParallelEnv):
         for row in grid:
             rendered += "".join(row) + "\n"
         print(rendered)
+        
