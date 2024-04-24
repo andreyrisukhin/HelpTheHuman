@@ -31,6 +31,7 @@ class Boundary(Enum):
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 NUM_COLORS = 3
+NUM_MOVES = 4
 class IDs(Enum):
     RED = 0
     BLUE = 1
@@ -95,7 +96,7 @@ class ColorMaze(ParallelEnv):
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
         self.leader_history = np.zeros((history_length, 1, xBoundary, yBoundary)) # History, channels (1), xrange, yrange
         self.follower_history = np.zeros((history_length, 1, xBoundary, yBoundary))
-        self.action_space = Discrete(4)  # type: ignore # Moves: Up, Down, Left, Right
+        self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
@@ -166,7 +167,6 @@ class ColorMaze(ParallelEnv):
         # Update block history
         self.blocks_history = self._update_history(self.blocks_history, self.blocks)
 
-        # breakpoint()
         """
         self.blocks_history.shape = (h=1, 3, 32, 32)
         self.blocks.shape = (3, 32, 32)
@@ -177,7 +177,7 @@ class ColorMaze(ParallelEnv):
         # I think the issue is that I need to store history for each of block, position, position
 
         # Ensure that observation is a 2d array
-        assert observation.ndim == 4
+        assert observation.ndim == NUM_MOVES
         assert observation.shape == (self.history_length, self._n_channels, xBoundary, yBoundary)
         return observation.astype(np.float32)
 
@@ -217,6 +217,7 @@ class ColorMaze(ParallelEnv):
             self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.blocks_history = np.zeros((self.history_length, NUM_COLORS, xBoundary, yBoundary)) 
 
         # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
         for _ in range(16):
@@ -230,7 +231,8 @@ class ColorMaze(ParallelEnv):
         goal_info = np.zeros(NUM_COLORS)
         goal_info[self.goal_block.value] = 1
 
-        # Update goal_info history
+        # Update block and goal_info history
+        self.blocks_history = self._update_history(self.blocks_history, self.blocks)
         self.goal_history = self._update_history(self.goal_history, goal_info)
 
         observations = {
@@ -249,6 +251,7 @@ class ColorMaze(ParallelEnv):
         return observations, infos
 
     def _consume_and_spawn_block(self, color_idx:int, x:int, y:int) -> None:
+        # TODO make this pure function (take in blocks parameter) with np array input + output
         self.blocks[color_idx, x, y] = 0
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
@@ -295,8 +298,8 @@ class ColorMaze(ParallelEnv):
         self._randomize_goal_block()
 
         # Make action masks
-        leader_action_mask = np.ones(4)
-        follower_action_mask = np.ones(4)
+        leader_action_mask = np.ones(NUM_MOVES)
+        follower_action_mask = np.ones(NUM_MOVES)
         for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if x == Boundary.x1.value:
                 action_mask[Moves.LEFT.value] = 0  # cant go left
