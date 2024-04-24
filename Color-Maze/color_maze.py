@@ -6,17 +6,17 @@ The follower can do the same. If the follower moves into a different color, scor
 Spawn: leader in top left, follower in bottom right. Blocks in random locations, not over other entities.
 Movement: leader and follower share moveset, one grid up, down, left, right.
 """
-from copy import copy
-
-import numpy as np
-from gymnasium.spaces import Discrete, MultiDiscrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
-from gymnasium.spaces import Dict # Composite Spaces - Dict is best for fixed number of unordered spaces.
+from gymnasium.spaces import Discrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
+from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best for fixed number of unordered spaces.
 
 from pettingzoo import ParallelEnv
 
-from typing import List, Callable, Dict
+import numpy as np
+from typing import Callable
 from dataclasses import dataclass
 from enum import Enum
+from copy import copy
+
 class Moves(Enum):
     UP = 0
     DOWN = 1
@@ -30,6 +30,8 @@ class Boundary(Enum):
     y2 = 31
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
+NUM_COLORS = 3
+NUM_MOVES = 4
 class IDs(Enum):
     RED = 0
     BLUE = 1
@@ -56,7 +58,7 @@ class ColorMazeRewards():
         self.close_threshold = close_threshold
         self.timestep_expiry = timestep_expiry
 
-    def penalize_follower_close_to_leader(self, agents:Dict[str, Agent], rewards, step:int):
+    def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards, step:int):
         '''Penalize the follower if it is close to the leader.'''
         if step > self.timestep_expiry:
             return rewards
@@ -67,15 +69,13 @@ class ColorMazeRewards():
         return rewards
 
 class ColorMaze(ParallelEnv):
-    """The metadata holds environment constants.
-    
-    The "name" metadata allows the environment to be pretty printed.
+    """The "name" metadata allows the environment to be pretty printed.
     """
     metadata = {
         "name:": "color_maze_v0",
     }
 
-    def __init__(self, seed=None, reward_shaping_fns:List[Callable]=[]):
+    def __init__(self, seed=None, reward_shaping_fns: list[Callable]=[], history_length:int=1):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -94,31 +94,36 @@ class ColorMaze(ParallelEnv):
         self.possible_agents = ["leader", "follower"]
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
-        self._action_space = Discrete(4)  # Moves: Up, Down, Left, Right
+        self.leader_history = np.zeros((history_length, 1, xBoundary, yBoundary)) # History, channels (1), xrange, yrange
+        self.follower_history = np.zeros((history_length, 1, xBoundary, yBoundary))
+        self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
-        self.blocks = np.zeros((3, xBoundary, yBoundary))
+        self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.blocks_history = np.zeros((history_length, NUM_COLORS, xBoundary, yBoundary)) 
+        
+        # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
-        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
-        goal_block_space = Discrete(3)  # Red, Green, Blue
-        self._observation_space = board_space # TODO add history of leader information
-        observation_space_with_goal = dict({
-            "observation": board_space,
-            "goal_block": goal_block_space # TODO ensure this is only visible to the leader, follower should have this either absent or masked out.
-        })
+        board_space = Box(low=0, high=1, shape=(history_length, self._n_channels, xBoundary, yBoundary), dtype=np.int32)
+        # goal_block_space = Discrete(3)  # Red, Green, Blue
+        self._observation_space = board_space # TODO use the history_length dimension
 
         # Spaces
-        self.observation_spaces = {
-            agent: self._observation_space
-            for agent in self.possible_agents
-        }
-        self.action_spaces = {
-            agent: self._action_space
-            for agent in self.possible_agents
-        }
+        goal_block_space = Box(low=0, high=1, shape=(history_length, NUM_COLORS)) #MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
+        
+        self.goal_history = np.zeros((history_length, NUM_COLORS))
+        self.goal_history[-1, self.goal_block.value] = 1  # one-hot vector for which block is rewarding
 
-        self.observation_space = lambda agent: self._observation_space
-        self.action_space = lambda agent: self._action_space
+        self.observation_spaces = { # Python dict, not gym spaces Dict.
+            "leader": DictSpace({
+                "observation": board_space,
+                "goal_info": goal_block_space
+            }), 
+            "follower": DictSpace({
+                "observation": board_space,
+                "goal_info": goal_block_space
+            })
+        }
 
         # Environment duration
         self.timestep = 0
@@ -127,22 +132,26 @@ class ColorMaze(ParallelEnv):
         # Reward shaping
         self.reward_shaping_fns = reward_shaping_fns
 
+        # History stored for both Leader and Follower
+        self.history_length = history_length # TODO can seperate per agent later
+
+
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
-            random_idx = self.rng.integers(len([IDs.RED, IDs.GREEN, IDs.BLUE])) # We only want to switch between the 3 colors, not the other spaces.
+            random_idx = self.rng.integers(NUM_COLORS)
             self.goal_block = IDs(random_idx)
+
+    def _update_history(self, history_tensor:np.ndarray, most_recent_slice) -> np.ndarray:
+        # NOTE: History gets appended at the last index, not the 0th index
+        history_tensor[:-1] = history_tensor[1:]  # Shift all existing observations by 1
+        history_tensor[-1] = most_recent_slice  # Add the most recent observation
+        return history_tensor  # Reference semantics, yet still return for clarity.
 
     def _convert_to_observation(self):
         """
         Converts the internal state of the environment into an observation that can be used by the agent.
         
         The observation is a 3D numpy array where each cell (0 or 1) represents the presence of an object in that cell in the maze.
-        The dimensions are based on IDs values:
-        - 0: Red block
-        - 1: Blue block
-        - 2: Green block
-        - 3: Leader agent
-        - 4: Follower agent
 
         Returns:
             numpy.ndarray: The observation array.
@@ -152,11 +161,24 @@ class ColorMaze(ParallelEnv):
         leader_position[0, self.leader.x, self.leader.y] = 1
         follower_position[0, self.follower.x, self.follower.y] = 1
 
-        observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
+        # Update the history for the positions: most recent is last, concatenated. Oldest is removed from the front.
+        self.leader_history = self._update_history(self.leader_history, leader_position)
+        self.follower_history = self._update_history(self.follower_history, follower_position)
+        # Update block history
+        self.blocks_history = self._update_history(self.blocks_history, self.blocks)
+
+        """
+        self.blocks_history.shape = (h=1, 3, 32, 32)
+        self.blocks.shape = (3, 32, 32)
+        leader_position.shape = (1, 32, 32)
+        follower_position.shape = (1, 32, 32)
+        """
+        observation = np.concatenate((self.blocks_history, self.leader_history, self.follower_history), axis=1)
+        # I think the issue is that I need to store history for each of block, position, position
 
         # Ensure that observation is a 2d array
-        assert observation.ndim == 3
-        assert observation.shape == (self._n_channels, xBoundary, yBoundary)
+        assert observation.ndim == NUM_MOVES
+        assert observation.shape == (self.history_length, self._n_channels, xBoundary, yBoundary)
         return observation.astype(np.float32)
 
     def set_state_to_observation(self, observation: np.ndarray):
@@ -165,13 +187,12 @@ class ColorMaze(ParallelEnv):
         into the internal env state representation.
         *Overrides* [!] the current env state with the given observation.
         """
-        # Add 1 to IDs because 0 is empty space
         leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
         follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
         assert follower_places.sum() == 1
         self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
-        assert self.blocks.shape == (3, xBoundary, yBoundary)
+        assert self.blocks.shape == (NUM_COLORS, xBoundary, yBoundary)
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
         self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
@@ -195,7 +216,8 @@ class ColorMaze(ParallelEnv):
             self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
             self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
-        self.blocks = np.zeros((3, xBoundary, yBoundary))
+        self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.blocks_history = np.zeros((self.history_length, NUM_COLORS, xBoundary, yBoundary)) 
 
         # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
         for _ in range(16):
@@ -206,9 +228,22 @@ class ColorMaze(ParallelEnv):
         self._randomize_goal_block()
 
         observation = self._convert_to_observation()
+        goal_info = np.zeros(NUM_COLORS)
+        goal_info[self.goal_block.value] = 1
+
+        # Update block and goal_info history
+        self.blocks_history = self._update_history(self.blocks_history, self.blocks)
+        self.goal_history = self._update_history(self.goal_history, goal_info)
+
         observations = {
-            agent: observation
-            for agent in self.agents
+            "leader": {
+                "observation": observation,
+                "goal_info": self.goal_history
+            },
+            "follower": {
+                "observation": observation,
+                "goal_info": np.zeros(self.goal_history.shape)
+            }
         }
 
         # Get dummy info, necessary for proper parallel_to_aec conversion
@@ -216,6 +251,7 @@ class ColorMaze(ParallelEnv):
         return observations, infos
 
     def _consume_and_spawn_block(self, color_idx:int, x:int, y:int) -> None:
+        # TODO make this pure function (take in blocks parameter) with np array input + output
         self.blocks[color_idx, x, y] = 0
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
@@ -262,8 +298,8 @@ class ColorMaze(ParallelEnv):
         self._randomize_goal_block()
 
         # Make action masks
-        leader_action_mask = np.ones(4)
-        follower_action_mask = np.ones(4)
+        leader_action_mask = np.ones(NUM_MOVES)
+        follower_action_mask = np.ones(NUM_MOVES)
         for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if x == Boundary.x1.value:
                 action_mask[Moves.LEFT.value] = 0  # cant go left
@@ -308,9 +344,19 @@ class ColorMaze(ParallelEnv):
             self.agents = []
 
         observation = self._convert_to_observation()
+        goal_info = np.zeros(NUM_COLORS)
+        goal_info[self.goal_block.value] = 1
+        self.goal_history = self._update_history(self.goal_history, goal_info)
+
         observations = {
-            agent: observation
-            for agent in self.agents
+            "leader": {
+                "observation": observation,
+                "goal_info": self.goal_history
+            },
+            "follower": {
+                "observation": observation,
+                "goal_info": np.zeros(self.goal_history.shape)
+            }
         }
         truncateds = terminateds
         return observations, rewards, terminateds, truncateds, infos

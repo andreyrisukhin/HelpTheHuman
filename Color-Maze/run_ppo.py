@@ -11,8 +11,8 @@ from tqdm import tqdm
 import os
 from pettingzoo import ParallelEnv
 
-from src.color_maze import ColorMaze
-from src.color_maze import ColorMazeRewards
+from color_maze import ColorMaze
+from color_maze import ColorMazeRewards
 
 @dataclass
 class StepData:
@@ -24,6 +24,7 @@ class StepData:
     values: torch.Tensor
     loss: float
     explained_var: float
+    goal_info: torch.Tensor
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -38,21 +39,20 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space):
         super().__init__()
-
+        
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
-        self.shared_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
+        self.conv_network = nn.Sequential(
+            layer_init(nn.Conv2d(observation_space.shape[1], 32, kernel_size=3, stride=3, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
-            nn.Flatten(start_dim=1),  # flatten all dims except batch-wise
-            layer_init(nn.Linear(64*6*6, 192)),
+        )
+        self.feature_network = nn.Sequential(
+            layer_init(nn.Linear(64*6*6 + 3, 192)), # TODO maybe edit this linear layer, check if error
             nn.Tanh(),
-            # No history is included in observations for now, so LSTM doesn't make sense
-            # nn.LSTM(192, 192, batch_first=True),
-            layer_init(nn.Linear(192, 192))
+            nn.LSTM(192, 192, batch_first=True)
         )
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),
@@ -69,17 +69,37 @@ class ActorCritic(nn.Module):
             layer_init(nn.Linear(64, 1), std=1.0),
         )
 
-    def forward(self, x):
-        # Removing hidden states and cells because LSTM is replaced by Linear for now
-        # features, (hidden_states, cell_states) = self.shared_network(x)
-        features = self.shared_network(x)
-        return self.policy_network(features), self.value_network(features)
+    def forward(self, x, goal_info):
+        batch_size = x.size(0)
 
-    def get_value(self, x):
-        return self.value_network(self.shared_network(x))
+        # Collapse sequence dimension into batch dim
+        x = x.flatten(start_dim=0, end_dim=1)
 
-    def get_action_and_value(self, x, action=None):
-        logits, value = self(x)
+        # Apply conv network in parallel on each sequence slice
+        features = self.conv_network(x)
+
+        # Recover batch and sequence length dimensions
+        features = features.unflatten(0, (batch_size, -1))
+
+        # Flatten convolution output channels into linear input
+        # New shape: (batch_size, history_length, flattened_size)
+        features = features.flatten(start_dim=2)
+
+        # Append one-hot reward encoding
+        features = torch.cat((features, goal_info), dim=2)
+        features, (hidden_states, cell_states) = self.feature_network(features)
+
+        # Grab all batches and remove history dimension
+        # features: (batch_size, history_length, feature_size)
+        # last_timestep_features: (batch_size, feature_size)
+        last_timestep_features = features[:, -1, ...].squeeze(1)
+        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features)
+
+    def get_value(self, x, goal_info):
+        return self.forward(x, goal_info=goal_info)[1]
+
+    def get_action_and_value(self, x, goal_info, action=None):
+        logits, value = self(x, goal_info=goal_info)
         probs = Categorical(logits=logits)
         if action is None:
             action = probs.sample()
@@ -103,33 +123,65 @@ def step(
         value_func_coef: float,
         max_grad_norm: float,
         target_kl: float | None,
+        hist_len: int,
 ) -> dict[str, StepData]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
     """
     observation_space_shapes = {
-        agent: envs[0].observation_space(agent).shape
+        agent: envs[0].observation_spaces[agent]["observation"].shape # type: ignore
         for agent in models
     }
+
+    goal_info_shapes = {
+        agent: envs[0].observation_spaces[agent]["goal_info"].shape # type: ignore
+        for agent in models
+    }
+
     observation_space_shapes = {key: value for key, value in observation_space_shapes.items() if value is not None}
     assert len(observation_space_shapes) == len(models)
     action_space_shapes = {
-        agent: envs[0].action_space(agent).shape
+        agent: envs[0].action_space.shape
         for agent in models
     }
     action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
     assert len(action_space_shapes) == len(models)
-
-    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(DEVICE) for agent in models}
+    
+    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(DEVICE) for agent in models} # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
+    all_goal_info = {
+       agent: torch.zeros((num_steps, len(envs)) + goal_info_shapes[agent]).to(DEVICE)
+       for agent in models
+    }
     all_actions = {agent: torch.zeros((num_steps, len(envs)) + action_space_shapes[agent]).to(DEVICE) for agent in models}
     all_logprobs = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_rewards = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
 
+    # def most_recent_observations(observations):
+    #     return torch.cat(torch.repeat(observations[0], hist_len), observations)[-hist_len:]
+
     next_observation_dicts, _ = list(zip(*[env.reset() for env in envs]))
-    next_observations = {agent: np.array([obs_dict[agent] for obs_dict in next_observation_dicts]) for agent in models}
+    # next_observations = {
+    #     agent: np.array([obs_dict[agent]["observation"][-hist_len:] for obs_dict in next_observation_dicts])
+    #     for agent in models
+    # }
+    # next_goal_info = {
+    #     agent: np.array([obs_dict[agent]["goal_info"][-hist_len:] for obs_dict in next_observation_dicts])
+    #     for agent in models
+    # }
+    next_observations = {
+        agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
+        for agent in models
+    }
+    next_goal_info = {
+        agent: np.array([obs_dict[agent]["goal_info"] for obs_dict in next_observation_dicts])
+        for agent in models
+    }
+    # next_observations = {agent: np.array([obs_dict[agent][-hist_len:] for obs_dict in next_observation_dicts]) for agent in models}
     next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
+    next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(DEVICE) for agent in models}
+    # next_observations = {agent: most_recent_observations(torch.tensor(next_observations[agent].to(DEVICE))) for agent in models}
     next_dones = {agent: torch.zeros(len(envs)).to(DEVICE) for agent in models}
 
     for step in range(num_steps):
@@ -137,10 +189,11 @@ def step(
 
         for agent, model in models.items():
             all_observations[agent][step] = next_observations[agent]
+            all_goal_info[agent][step] = next_goal_info[agent]
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value = model.get_action_and_value(next_observations[agent])
+                action, logprob, _, value = model.get_action_and_value(next_observations[agent], next_goal_info[agent])
                 step_actions[agent] = action.cpu().numpy()
 
                 all_actions[agent][step] = action
@@ -151,13 +204,16 @@ def step(
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, _ = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
-        next_observations = {agent: np.array([obs_dict[agent] for obs_dict in next_observation_dicts]) for agent in models}
+        next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
+        next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
         for agent in models:
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(DEVICE).view(-1)
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
 
+        # Convert to tensors
         next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
+        next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(DEVICE) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(DEVICE) for agent in models}
 
     explained_var = {}
@@ -165,7 +221,7 @@ def step(
     for agent, model in models.items():
         # bootstrap values if not done
         with torch.no_grad():
-            next_values = model.get_value(next_observations[agent]).reshape(1, -1)
+            next_values = model.get_value(next_observations[agent], next_goal_info[agent]).reshape(1, -1)
             advantages = torch.zeros_like(all_rewards[agent]).to(DEVICE)
             lastgaelam = 0
             for t in reversed(range(num_steps)):
@@ -180,8 +236,9 @@ def step(
             returns = advantages + all_values[agent]
 
         # flatten the batch
-        b_obs = all_observations[agent].reshape((-1,) + observation_space_shapes[agent])
+        b_obs = all_observations[agent].reshape((-1,) + observation_space_shapes[agent])  # (-1, 5, xBoundary, yBoundary)
         b_logprobs = all_logprobs[agent].reshape(-1)
+        b_goal_info = all_goal_info[agent].reshape((-1,) + goal_info_shapes[agent])
         b_actions = all_actions[agent].reshape((-1,) + action_space_shapes[agent])
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
@@ -196,7 +253,11 @@ def step(
                 end = start + minibatch_size
                 mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue = model.get_action_and_value(b_obs[mb_inds], b_actions.long()[mb_inds])
+                _, newlogprob, entropy, newvalue = model.get_action_and_value(
+                    b_obs[mb_inds], 
+                    goal_info=b_goal_info.long()[mb_inds], 
+                    action=b_actions.long()[mb_inds]
+                )
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
@@ -248,6 +309,7 @@ def step(
     step_result = {
         agent: StepData(
             observations=all_observations[agent].cpu(),
+            goal_info=all_goal_info[agent].cpu(),
             actions=all_actions[agent].cpu(),
             rewards=all_rewards[agent].cpu(),
             dones=all_dones[agent].cpu(),
@@ -284,6 +346,7 @@ def train(
         checkpoint_iters: int = 0,
         debug_print: bool = False,
         log_to_wandb: bool = True,
+        hist_len: int = 5,
         seed: int = 42,
 ):
     if log_to_wandb:
@@ -296,15 +359,17 @@ def train(
     minibatch_size = batch_size // num_minibatches
     num_iterations = total_timesteps // batch_size
 
+    # TODO conditionally use reward shaping based on args
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=500).penalize_follower_close_to_leader
-    envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(history_length=hist_len) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # Observation and action spaces are the same for leader and follower
-    obs_space = envs[0].observation_space('leader')
-    act_space = envs[0].action_space('leader')
+    leader_obs_space = envs[0].observation_spaces['leader']
+    follower_obs_space = envs[0].observation_spaces['follower']
+    act_space = envs[0].action_space
 
-    leader = ActorCritic(obs_space, act_space).to(DEVICE)
-    follower = ActorCritic(obs_space, act_space).to(DEVICE)
+    leader = ActorCritic(leader_obs_space['observation'], act_space).to(DEVICE)  # type: ignore
+    follower = ActorCritic(follower_obs_space['observation'], act_space).to(DEVICE) # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
     models = {'leader': leader, 'follower': follower}
@@ -329,7 +394,8 @@ def train(
             entropy_coef=entropy_coef,
             value_func_coef=value_func_coef,
             max_grad_norm=max_grad_norm,
-            target_kl=target_kl
+            target_kl=target_kl,
+            hist_len=hist_len
         )
 
         metrics = {}
@@ -345,11 +411,13 @@ def train(
 
         if save_data_iters and iteration % save_data_iters == 0:
             observation_states = step_results['leader'].observations.transpose(0, 1)  # Transpose so the dims are (env, step, ...observation_shape)
+            goal_infos = step_results['leader'].goal_info.transpose(0, 1)
             for i in range(observation_states.size(0)):
                 # TODO this will need to be updated once the leader can see true reward. We ought to log it too, to see when it changes during inspection.
                 trajectory = observation_states[i].numpy()
                 os.makedirs(f'trajectories/{run_name}', exist_ok=True)
                 np.save(f"trajectories/{run_name}/trajectory_{iteration=}_env={i}.npy", trajectory)
+                np.save(f"trajectories/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos)
 
         if debug_print:
             print(f"iter {iteration}: {metrics}")

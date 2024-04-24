@@ -12,7 +12,14 @@ To update the requirements.txt after you added an import, use
 pip freeze > requirements.txt
 ```
 
+Debug without logging:
+```{bash}
+python run_ppo.py --log_to_wandb=False
+```
+
 ## Citation for PettingZoo
+
+https://pettingzoo.farama.org/tutorials/custom_environment/1-project-structure/
 
 To cite PettingZoo in publication, please use
 
