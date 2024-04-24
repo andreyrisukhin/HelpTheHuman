@@ -6,19 +6,17 @@ The follower can do the same. If the follower moves into a different color, scor
 Spawn: leader in top left, follower in bottom right. Blocks in random locations, not over other entities.
 Movement: leader and follower share moveset, one grid up, down, left, right.
 """
-from copy import copy
-
-import numpy as np
-
-from gymnasium.spaces import Discrete, MultiDiscrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
-from gymnasium.spaces import Dict # Composite Spaces - Dict is best for fixed number of unordered spaces.
+from gymnasium.spaces import Discrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
 from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best for fixed number of unordered spaces.
 
 from pettingzoo import ParallelEnv
 
-from typing import List, Callable, Dict
+import numpy as np
+from typing import Callable
 from dataclasses import dataclass
 from enum import Enum
+from copy import copy
+
 class Moves(Enum):
     UP = 0
     DOWN = 1
@@ -59,7 +57,7 @@ class ColorMazeRewards():
         self.close_threshold = close_threshold
         self.timestep_expiry = timestep_expiry
 
-    def penalize_follower_close_to_leader(self, agents:Dict[str, Agent], rewards, step:int):
+    def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards, step:int):
         '''Penalize the follower if it is close to the leader.'''
         if step > self.timestep_expiry:
             return rewards
@@ -76,7 +74,7 @@ class ColorMaze(ParallelEnv):
         "name:": "color_maze_v0",
     }
 
-    def __init__(self, seed=None, reward_shaping_fns:List[Callable]=[], history_length:int=1):
+    def __init__(self, seed=None, reward_shaping_fns: list[Callable]=[], history_length:int=1):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -115,7 +113,7 @@ class ColorMaze(ParallelEnv):
         self.goal_history = np.zeros((history_length, 3))
         self.goal_history[-1, self.goal_block.value] = 1  # one-hot vector for which block is rewarding
 
-        self.observation_spaces = dict({ # Python dict, not gym spaces Dict.
+        self.observation_spaces = { # Python dict, not gym spaces Dict.
             "leader": DictSpace({
                 "observation": board_space,
                 "goal_info": goal_block_space
@@ -124,7 +122,7 @@ class ColorMaze(ParallelEnv):
                 "observation": board_space,
                 "goal_info": goal_block_space
             })
-        })
+        }
 
         # Environment duration
         self.timestep = 0
