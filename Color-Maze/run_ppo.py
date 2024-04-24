@@ -42,18 +42,17 @@ class ActorCritic(nn.Module):
         
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
+            layer_init(nn.Conv2d(observation_space.shape[1], 32, kernel_size=3, stride=3, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
-            nn.Flatten(start_dim=2),  # flatten all dims except batch-wise and time (history) dimension
         )
         self.feature_network = nn.Sequential(
             layer_init(nn.Linear(64*6*6 + 3, 192)), # TODO maybe edit this linear layer, check if error
             nn.Tanh(),
-            nn.LSTM(192, 192, batch_first=True) # TODO LSTM should just work because the shape is (bsz, history len, flattened dims), == the shape that torch.LSTM expects when batch_first=True
+            nn.LSTM(192, 192, batch_first=True)
         )
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),
@@ -71,11 +70,30 @@ class ActorCritic(nn.Module):
         )
 
     def forward(self, x, goal_info):
+        batch_size = x.size(0)
+
+        # Collapse sequence dimension into batch dim
+        x = x.flatten(start_dim=0, end_dim=1)
+
+        # Apply conv network in parallel on each sequence slice
         features = self.conv_network(x)
-        # add one-hot reward encoding
-        features = torch.cat((features, goal_info), dim=1)
+
+        # Recover batch and sequence length dimensions
+        features = features.unflatten(0, (batch_size, -1))
+
+        # Flatten convolution output channels into linear input
+        # New shape: (batch_size, history_length, flattened_size)
+        features = features.flatten(start_dim=2)
+
+        # Append one-hot reward encoding
+        features = torch.cat((features, goal_info), dim=2)
         features, (hidden_states, cell_states) = self.feature_network(features)
-        return self.policy_network(features), self.value_network(features)
+
+        # Grab all batches and remove history dimension
+        # features: (batch_size, history_length, feature_size)
+        # last_timestep_features: (batch_size, feature_size)
+        last_timestep_features = features[:, -1, ...].squeeze(1)
+        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features)
 
     def get_value(self, x, goal_info):
         return self.forward(x, goal_info=goal_info)[1]
@@ -171,7 +189,6 @@ def step(
 
         for agent, model in models.items():
             all_observations[agent][step] = next_observations[agent]
-            breakpoint()
             all_goal_info[agent][step] = next_goal_info[agent]
             all_dones[agent][step] = next_dones[agent]
 
@@ -343,7 +360,7 @@ def train(
     num_iterations = total_timesteps // batch_size
 
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=500).penalize_follower_close_to_leader
-    envs = [ColorMaze(history_length=1) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(history_length=2) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # Observation and action spaces are the same for leader and follower
     leader_obs_space = envs[0].observation_spaces['leader']

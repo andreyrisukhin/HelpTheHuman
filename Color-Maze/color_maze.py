@@ -112,9 +112,8 @@ class ColorMaze(ParallelEnv):
         # Spaces
         goal_block_space = Box(low=0, high=1, shape=(history_length, 3)) #MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
         
-        self.goal_info = np.zeros((3))
-        self.goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
         self.goal_history = np.zeros((history_length, 3))
+        self.goal_history[-1, self.goal_block.value] = 1  # one-hot vector for which block is rewarding
 
         self.observation_spaces = dict({ # Python dict, not gym spaces Dict.
             "leader": DictSpace({
@@ -144,9 +143,10 @@ class ColorMaze(ParallelEnv):
             self.goal_block = IDs(random_idx)
 
     def _update_history(self, history_tensor:np.ndarray, most_recent_slice) -> np.ndarray:
-        history_tensor[1:] = history_tensor[:-1] # Shift all existing observations by 1
-        history_tensor[0] = most_recent_slice # Add the most recent observation
-        return history_tensor # Reference semantics, yet still return for clarity.
+        # NOTE: History gets appended at the last index, not the 0th index
+        history_tensor[:-1] = history_tensor[1:]  # Shift all existing observations by 1
+        history_tensor[-1] = most_recent_slice  # Add the most recent observation
+        return history_tensor  # Reference semantics, yet still return for clarity.
 
     def _convert_to_observation(self):
         """
@@ -343,17 +343,18 @@ class ColorMaze(ParallelEnv):
             self.agents = []
 
         observation = self._convert_to_observation()
-        goal_info = np.zeros(3)
+        goal_info = np.zeros(NUM_COLORS)
         goal_info[self.goal_block.value] = 1
+        self.goal_history = self._update_history(self.goal_history, goal_info)
 
         observations = {
             "leader": {
                 "observation": observation,
-                "goal_info": goal_info
+                "goal_info": self.goal_history
             },
             "follower": {
                 "observation": observation,
-                "goal_info": np.zeros(3)
+                "goal_info": np.zeros(self.goal_history.shape)
             }
         }
         truncateds = terminateds

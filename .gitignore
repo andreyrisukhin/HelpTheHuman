@@ -167,3 +167,4 @@ cython_debug/
 results*/
 
 .vscode/
+Color-Maze/trajectories/None/
