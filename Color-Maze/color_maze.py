@@ -106,12 +106,11 @@ class ColorMaze(ParallelEnv):
         # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
         board_space = Box(low=0, high=1, shape=(history_length, self._n_channels, xBoundary, yBoundary), dtype=np.int32)
-        goal_block_space = Discrete(3)  # Red, Green, Blue
+        # goal_block_space = Discrete(3)  # Red, Green, Blue
         self._observation_space = board_space # TODO use the history_length dimension
 
         # Spaces
-        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
-        goal_block_space = MultiDiscrete([2, 2, 2])  # Red, Green, Blue
+        goal_block_space = MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
         
         self.goal_info = np.zeros((3))
         self.goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding

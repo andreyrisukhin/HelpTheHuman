@@ -170,8 +170,8 @@ def step(
         step_actions = {}
 
         for agent, model in models.items():
-            breakpoint()
             all_observations[agent][step] = next_observations[agent]
+            breakpoint()
             all_goal_info[agent][step] = next_goal_info[agent]
             all_dones[agent][step] = next_dones[agent]
 
