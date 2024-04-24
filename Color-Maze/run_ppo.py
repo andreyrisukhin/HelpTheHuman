@@ -359,8 +359,9 @@ def train(
     minibatch_size = batch_size // num_minibatches
     num_iterations = total_timesteps // batch_size
 
+    # TODO conditionally use reward shaping based on args
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=500).penalize_follower_close_to_leader
-    envs = [ColorMaze(history_length=2) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(history_length=hist_len) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # Observation and action spaces are the same for leader and follower
     leader_obs_space = envs[0].observation_spaces['leader']
