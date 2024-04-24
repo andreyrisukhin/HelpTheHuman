@@ -48,12 +48,12 @@ class ActorCritic(nn.Module):
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
-            nn.Flatten(start_dim=1),  # flatten all dims except batch-wise 
+            nn.Flatten(start_dim=2),  # flatten all dims except batch-wise and time (history) dimension
         )
         self.feature_network = nn.Sequential(
-            layer_init(nn.Linear(64*6*6 + 3, 192)),
+            layer_init(nn.Linear(64*6*6 + 3, 192)), # TODO maybe edit this linear layer, check if error
             nn.Tanh(),
-            nn.LSTM(192, 192, batch_first=True)
+            nn.LSTM(192, 192, batch_first=True) # TODO LSTM should just work because the shape is (bsz, history len, flattened dims), == the shape that torch.LSTM expects when batch_first=True
         )
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),

@@ -102,9 +102,9 @@ class ColorMaze(ParallelEnv):
         
         # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
-        board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary, self.history_length), dtype=np.int32)
+        board_space = Box(low=0, high=1, shape=(history_length, self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         goal_block_space = Discrete(3)  # Red, Green, Blue
-        self._observation_space = board_space # TODO add history of leader information
+        self._observation_space = board_space # TODO use the history_length dimension
         observation_space_with_goal = dict({
             "observation": board_space,
             "goal_block": goal_block_space # TODO ensure this is only visible to the leader, follower should have this either absent or masked out.
@@ -160,23 +160,22 @@ class ColorMaze(ParallelEnv):
         follower_position[0, self.follower.x, self.follower.y] = 1
 
         """
-        CONTINUE
-
-        pretty sure these changes should do it:
-            edit board_space to have an additional dimension for history: https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/color_maze.py#L103
-            add class fields self.blocks_history and self.goal_info_history which are the shape of self.blocks and self.goal_info plus a time dimension of size history_length (OR just directly modify the shapes of the original fields)
-            
-            CONTINUE > make _convert_to_observation return an array of shape (history_length, _n_channels, xBoundary, yBoundary) accordingly
-            
-            edit nn.Flatten to NOT flatten the time dimension https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L51
             maybe need to edit the shape of the following linear layer, i'm not 100% sure about this one -- would need to run and see what happens https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L54
             LSTM should just work because now the shape would be (batch_size, history_length, flattened_dims) which is the shape that torch LSTM expects when batch_first=True https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L56
-
         """
+        # TODO check that blocks_history is used correctly here
 
-        # TODO modify this to use self.blocks_history
-        observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
-                
+        breakpoint()
+        """
+        self.blocks_history.shape = (1, 3, 32, 32)
+        self.blocks.shape = (3, 32, 32)
+        leader_position.shape = (1, 32, 32)
+        follower_position.shape = (1, 32, 32)
+        """
+        observation = np.concatenate((self.blocks_history, self.blocks, leader_position, follower_position), axis=0)
+        # I think the issue is that I need to store history for each of block, position, position
+
+
         # Ensure that observation is a 2d array
         assert observation.ndim == 4
         assert observation.shape == (self.history_length, self._n_channels, xBoundary, yBoundary)
