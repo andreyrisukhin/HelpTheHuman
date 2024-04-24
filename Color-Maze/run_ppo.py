@@ -129,7 +129,7 @@ def step(
     action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
     assert len(action_space_shapes) == len(models)
     
-    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(DEVICE) for agent in models}
+    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(DEVICE) for agent in models} # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
     all_goal_info = {
        agent: torch.zeros((num_steps, len(envs)) + goal_info_shapes[agent]).to(DEVICE)
        for agent in models
@@ -170,6 +170,7 @@ def step(
         step_actions = {}
 
         for agent, model in models.items():
+            breakpoint()
             all_observations[agent][step] = next_observations[agent]
             all_goal_info[agent][step] = next_goal_info[agent]
             all_dones[agent][step] = next_dones[agent]

@@ -108,10 +108,6 @@ class ColorMaze(ParallelEnv):
         board_space = Box(low=0, high=1, shape=(history_length, self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         goal_block_space = Discrete(3)  # Red, Green, Blue
         self._observation_space = board_space # TODO use the history_length dimension
-        observation_space_with_goal = dict({
-            "observation": board_space,
-            "goal_block": goal_block_space # TODO ensure this is only visible to the leader, follower should have this either absent or masked out.
-        })
 
         # Spaces
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
