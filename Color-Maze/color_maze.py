@@ -9,6 +9,7 @@ Movement: leader and follower share moveset, one grid up, down, left, right.
 from copy import copy
 
 import numpy as np
+
 from gymnasium.spaces import Discrete, MultiDiscrete, Box # Fundamental Spaces - https://gymnasium.farama.org/api/spaces/
 from gymnasium.spaces import Dict # Composite Spaces - Dict is best for fixed number of unordered spaces.
 from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best for fixed number of unordered spaces.
@@ -94,6 +95,8 @@ class ColorMaze(ParallelEnv):
         self.possible_agents = ["leader", "follower"]
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+        self.leader_history = np.zeros((history_length, 1, xBoundary, yBoundary)) # History, channels (1), xrange, yrange
+        self.follower_history = np.zeros((history_length, 1, xBoundary, yBoundary))
         self.action_space = Discrete(4)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
@@ -116,7 +119,7 @@ class ColorMaze(ParallelEnv):
         
         self.goal_info = np.zeros((3))
         self.goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
-        self.goal_history = np.zeros((history_length, 3, xBoundary, yBoundary))
+        self.goal_history = np.zeros((history_length, 3))
 
         self.observation_spaces = dict({ # Python dict, not gym spaces Dict.
             "leader": DictSpace({
@@ -145,6 +148,11 @@ class ColorMaze(ParallelEnv):
             random_idx = self.rng.integers(NUM_COLORS)
             self.goal_block = IDs(random_idx)
 
+    def _update_history(self, history_tensor:np.ndarray, most_recent_slice) -> np.ndarray:
+        history_tensor[1:] = history_tensor[:-1] # Shift all existing observations by 1
+        history_tensor[0] = most_recent_slice # Add the most recent observation
+        return history_tensor # Reference semantics, yet still return for clarity.
+
     def _convert_to_observation(self):
         """
         Converts the internal state of the environment into an observation that can be used by the agent.
@@ -159,22 +167,21 @@ class ColorMaze(ParallelEnv):
         leader_position[0, self.leader.x, self.leader.y] = 1
         follower_position[0, self.follower.x, self.follower.y] = 1
 
-        """
-            maybe need to edit the shape of the following linear layer, i'm not 100% sure about this one -- would need to run and see what happens https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L54
-            LSTM should just work because now the shape would be (batch_size, history_length, flattened_dims) which is the shape that torch LSTM expects when batch_first=True https://github.com/andreyrisukhin/HelpTheHuman/blob/ar-history/Color-Maze/run_ppo.py#L56
-        """
-        # TODO check that blocks_history is used correctly here
+        # Update the history for the positions: most recent is last, concatenated. Oldest is removed from the front.
+        self.leader_history = self._update_history(self.leader_history, leader_position)
+        self.follower_history = self._update_history(self.follower_history, follower_position)
+        # Update block history
+        self.blocks_history = self._update_history(self.blocks_history, self.blocks)
 
-        breakpoint()
+        # breakpoint()
         """
-        self.blocks_history.shape = (1, 3, 32, 32)
+        self.blocks_history.shape = (h=1, 3, 32, 32)
         self.blocks.shape = (3, 32, 32)
         leader_position.shape = (1, 32, 32)
         follower_position.shape = (1, 32, 32)
         """
-        observation = np.concatenate((self.blocks_history, self.blocks, leader_position, follower_position), axis=0)
+        observation = np.concatenate((self.blocks_history, self.leader_history, self.follower_history), axis=1)
         # I think the issue is that I need to store history for each of block, position, position
-
 
         # Ensure that observation is a 2d array
         assert observation.ndim == 4
@@ -230,14 +237,17 @@ class ColorMaze(ParallelEnv):
         goal_info = np.zeros(3)
         goal_info[self.goal_block.value] = 1
 
+        # Update goal_info history
+        self.goal_history = self._update_history(self.goal_history, goal_info)
+
         observations = {
             "leader": {
                 "observation": observation,
-                "goal_info": goal_info
+                "goal_info": self.goal_history #goal_info
             },
             "follower": {
                 "observation": observation,
-                "goal_info": np.zeros(3)
+                "goal_info": np.zeros(self.goal_history.shape) #np.zeros(3)
             }
         }
 
