@@ -110,7 +110,7 @@ class ColorMaze(ParallelEnv):
         self._observation_space = board_space # TODO use the history_length dimension
 
         # Spaces
-        goal_block_space = MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
+        goal_block_space = Box(low=0, high=1, shape=(history_length, 3)) #MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
         
         self.goal_info = np.zeros((3))
         self.goal_info[self.goal_block.value] = 1 # one-hot vector for which block is rewarding
