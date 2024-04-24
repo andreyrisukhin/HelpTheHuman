@@ -98,8 +98,8 @@ class ColorMaze(ParallelEnv):
         self.action_space = Discrete(4)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
-        self.blocks = np.zeros((3, xBoundary, yBoundary))
-        self.blocks_history = np.zeros((history_length, 3, xBoundary, yBoundary)) 
+        self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.blocks_history = np.zeros((history_length, NUM_COLORS, xBoundary, yBoundary)) 
         
         # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
@@ -108,9 +108,9 @@ class ColorMaze(ParallelEnv):
         self._observation_space = board_space # TODO use the history_length dimension
 
         # Spaces
-        goal_block_space = Box(low=0, high=1, shape=(history_length, 3)) #MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
+        goal_block_space = Box(low=0, high=1, shape=(history_length, NUM_COLORS)) #MultiDiscrete([2, 2, 2]) #MultiDiscrete([history_length, 2, 2, 2])  # Red, Green, Blue #MultiDiscrete([2, 2, 2])  # Red, Green, Blue
         
-        self.goal_history = np.zeros((history_length, 3))
+        self.goal_history = np.zeros((history_length, NUM_COLORS))
         self.goal_history[-1, self.goal_block.value] = 1  # one-hot vector for which block is rewarding
 
         self.observation_spaces = { # Python dict, not gym spaces Dict.
@@ -192,7 +192,7 @@ class ColorMaze(ParallelEnv):
         assert leader_places.sum() == 1
         assert follower_places.sum() == 1
         self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
-        assert self.blocks.shape == (3, xBoundary, yBoundary)
+        assert self.blocks.shape == (NUM_COLORS, xBoundary, yBoundary)
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
         self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
@@ -216,7 +216,7 @@ class ColorMaze(ParallelEnv):
             self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
             self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
-        self.blocks = np.zeros((3, xBoundary, yBoundary))
+        self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
 
         # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
         for _ in range(16):
@@ -227,7 +227,7 @@ class ColorMaze(ParallelEnv):
         self._randomize_goal_block()
 
         observation = self._convert_to_observation()
-        goal_info = np.zeros(3)
+        goal_info = np.zeros(NUM_COLORS)
         goal_info[self.goal_block.value] = 1
 
         # Update goal_info history
@@ -236,11 +236,11 @@ class ColorMaze(ParallelEnv):
         observations = {
             "leader": {
                 "observation": observation,
-                "goal_info": self.goal_history #goal_info
+                "goal_info": self.goal_history
             },
             "follower": {
                 "observation": observation,
-                "goal_info": np.zeros(self.goal_history.shape) #np.zeros(3)
+                "goal_info": np.zeros(self.goal_history.shape)
             }
         }
 
@@ -376,4 +376,3 @@ class ColorMaze(ParallelEnv):
         for row in grid:
             rendered += "".join(row) + "\n"
         print(rendered)
-        
