@@ -405,6 +405,7 @@ def train(
                 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean()  # Sum along step dim and average along env dim
             }
+        metrics['timesteps'] = (iteration + 1) * batch_size
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
