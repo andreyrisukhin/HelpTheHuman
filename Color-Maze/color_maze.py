@@ -135,15 +135,8 @@ class ColorMaze(ParallelEnv):
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
             other_colors = list(range(NUM_COLORS))
-            print(self.goal_block)
-            print(other_colors)
-            other_colors.remove(self.goal_block.value)
-            print("current:", self.goal_block)
-            print("other colors:", other_colors)
-            
-            self.goal_block = IDs(self.rng.choice(other_colors))
-            print("changed to:", self.goal_block, "\n")
-            
+            other_colors.remove(self.goal_block.value)            
+            self.goal_block = IDs(self.rng.choice(other_colors))            
             self.goal_switched = True
             
     def _update_history(self, history_tensor:np.ndarray, most_recent_slice) -> np.ndarray:
