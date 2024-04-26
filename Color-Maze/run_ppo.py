@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Categorical
 import numpy as np
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, Tuple
 from dataclasses import dataclass
 import wandb
 from fire import Fire
@@ -123,7 +123,7 @@ def step(
         value_func_coef: float,
         max_grad_norm: float,
         target_kl: float | None
-) -> dict[str, StepData]:
+) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
     """
@@ -157,7 +157,10 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
 
-    next_observation_dicts, _ = list(zip(*[env.reset() for env in envs]))
+    # next_observation_dicts, _ = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
+    next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
+    # breakpoint()
+
     next_observations = {
         agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
         for agent in models
@@ -196,7 +199,7 @@ def step(
         for agent in models:
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(DEVICE).view(-1)
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
-        num_goals_switched = sum(env.goal_switched for env in envs)
+        num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
         
         # Convert to tensors
         next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
@@ -385,7 +388,7 @@ def train(
         )
 
         metrics = {}
-        for agent, results in step_results.items():
+        for agent, results in step_results.items(): # type: ignore
             metrics[agent] = {
                 'loss': results.loss,
                 'explained_var': results.explained_var,
@@ -398,8 +401,8 @@ def train(
             wandb.log(metrics, step=iteration)
 
         if save_data_iters and iteration % save_data_iters == 0:
-            observation_states = step_results['leader'].observations.transpose(0, 1)  # Transpose so the dims are (env, step, ...observation_shape)
-            goal_infos = step_results['leader'].goal_info.transpose(0, 1)
+            observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
+            goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
             for i in range(observation_states.size(0)):
                 # TODO this will need to be updated once the leader can see true reward. We ought to log it too, to see when it changes during inspection.
                 trajectory = observation_states[i].numpy()

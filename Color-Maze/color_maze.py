@@ -12,7 +12,7 @@ from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best
 from pettingzoo import ParallelEnv
 
 import numpy as np
-from typing import Callable
+from typing import Callable, Tuple
 from dataclasses import dataclass
 from enum import Enum
 from copy import copy
@@ -88,6 +88,7 @@ class ColorMaze(ParallelEnv):
 
         # Agents
         self.possible_agents = ["leader", "follower"]
+        self.agents = copy(self.possible_agents)
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
         self.leader_history = np.zeros((history_length, 1, xBoundary, yBoundary)) # History, channels (1), xrange, yrange
@@ -145,7 +146,7 @@ class ColorMaze(ParallelEnv):
         history_tensor[-1] = most_recent_slice  # Add the most recent observation
         return history_tensor  # Reference semantics, yet still return for clarity.
 
-    def _convert_to_observation(self, blocks):
+    def _convert_to_observation(self, blocks:np.ndarray) -> np.ndarray:
         """
         Converts the internal state of the environment into an observation that can be used by the agent.
         
@@ -191,7 +192,7 @@ class ColorMaze(ParallelEnv):
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
         self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
-    def reset(self, *, seed=None, options=None):
+    def reset(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, np.ndarray]]]:
         """Reset the environment to a starting point."""
         if seed is not None:
             self.seed = seed
@@ -246,7 +247,65 @@ class ColorMaze(ParallelEnv):
         infos = {a: {} for a in self.agents}
         return observations, infos
 
-    def _consume_and_spawn_block(self, color_idx:int, x:int, y:int, blocks) -> None:
+
+    def get_obs_and_goal_info(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, np.ndarray]]]:
+        """Used by run_ppo each rollout to update PPO based on observations and goal info. Importantly does not reset the environment."""
+        # if seed is not None:
+        #     self.seed = seed
+        # else:
+        #     self.seed = 42
+        # self.rng = np.random.default_rng(seed=self.seed)
+
+        # self.agents = copy(self.possible_agents)
+        # self.timestep = 0
+        # self.goal_switched = False
+
+        # # Randomize initial locations
+        # self.leader.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+        # self.leader.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
+        # self.follower.x = self.leader.x
+        # self.follower.y = self.leader.y
+        # while (self.follower.x, self.follower.y) == (self.leader.x, self.leader.y):
+        #     self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+        #     self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
+
+        # self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        # self.blocks_history = np.zeros((self.history_length, NUM_COLORS, xBoundary, yBoundary)) 
+
+        # # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
+        # for _ in range(16):
+        #     self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
+        #     self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
+        #     self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
+        
+        # self._randomize_goal_block()
+
+        observation = self._convert_to_observation(self.blocks)
+        goal_info = np.zeros(NUM_COLORS) # TODO check this is correct.
+        goal_info[self.goal_block.value] = 1
+
+        # Update block and goal_info history # TODO double check that we update history for this, if it is only observation.
+        self.blocks_history = self._update_history(self.blocks_history, self.blocks)
+        self.goal_history = self._update_history(self.goal_history, goal_info)
+
+        observations = {
+            "leader": {
+                "observation": observation,
+                "goal_info": self.goal_history
+            },
+            "follower": {
+                "observation": observation,
+                "goal_info": np.zeros(self.goal_history.shape)
+            }
+        }
+
+        # Get dummy info, necessary for proper parallel_to_aec conversion
+        infos = {a: {} for a in self.agents}
+        return observations, infos
+
+
+
+    def _consume_and_spawn_block(self, color_idx:int, x:int, y:int, blocks:np.ndarray) -> np.ndarray:
         blocks[color_idx, x, y] = 0
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
@@ -260,6 +319,7 @@ class ColorMaze(ParallelEnv):
             blocks[color_idx, x, y] = 1
             return blocks
         assert False, "No cell with value 0 found to update."
+        return blocks # Makes the typechecker happy, TODO handle this more cleanly
 
     def step(self, actions):
         """
