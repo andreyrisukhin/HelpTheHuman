@@ -50,7 +50,7 @@ class ActorCritic(nn.Module):
             nn.LeakyReLU(),
         )
         self.feature_network = nn.Sequential(
-            layer_init(nn.Linear(64*6*6 + 3, 192)), # TODO maybe edit this linear layer, check if error
+            layer_init(nn.Linear(64*6*6 + 3, 192)),
             nn.Tanh(),
             nn.LSTM(192, 192, batch_first=True)
         )
@@ -122,8 +122,7 @@ def step(
         entropy_coef: float,
         value_func_coef: float,
         max_grad_norm: float,
-        target_kl: float | None,
-        hist_len: int,
+        target_kl: float | None
 ) -> dict[str, StepData]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -158,18 +157,7 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
 
-    # def most_recent_observations(observations):
-    #     return torch.cat(torch.repeat(observations[0], hist_len), observations)[-hist_len:]
-
     next_observation_dicts, _ = list(zip(*[env.reset() for env in envs]))
-    # next_observations = {
-    #     agent: np.array([obs_dict[agent]["observation"][-hist_len:] for obs_dict in next_observation_dicts])
-    #     for agent in models
-    # }
-    # next_goal_info = {
-    #     agent: np.array([obs_dict[agent]["goal_info"][-hist_len:] for obs_dict in next_observation_dicts])
-    #     for agent in models
-    # }
     next_observations = {
         agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
         for agent in models
@@ -178,10 +166,8 @@ def step(
         agent: np.array([obs_dict[agent]["goal_info"] for obs_dict in next_observation_dicts])
         for agent in models
     }
-    # next_observations = {agent: np.array([obs_dict[agent][-hist_len:] for obs_dict in next_observation_dicts]) for agent in models}
     next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
     next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(DEVICE) for agent in models}
-    # next_observations = {agent: most_recent_observations(torch.tensor(next_observations[agent].to(DEVICE))) for agent in models}
     next_dones = {agent: torch.zeros(len(envs)).to(DEVICE) for agent in models}
 
     for step in range(num_steps):
@@ -210,7 +196,8 @@ def step(
         for agent in models:
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(DEVICE).view(-1)
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
-
+        num_goals_switched = sum(env.goal_switched for env in envs)
+        
         # Convert to tensors
         next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(DEVICE) for agent in models}
@@ -316,11 +303,11 @@ def step(
             action_log_probs=all_logprobs[agent].cpu(),
             values=all_values[agent].cpu(),
             loss=acc_losses[agent] / ppo_update_epochs,
-            explained_var=explained_var[agent]
+            explained_var=explained_var[agent],
         )
         for agent in models
     }
-    return step_result
+    return step_result, num_goals_switched
 
 
 def train(
@@ -378,7 +365,7 @@ def train(
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
-        step_results = step(
+        step_results, num_goals_switched = step(
             envs=envs,
             models=models,
             optimizers=optimizers,
@@ -394,8 +381,7 @@ def train(
             entropy_coef=entropy_coef,
             value_func_coef=value_func_coef,
             max_grad_norm=max_grad_norm,
-            target_kl=target_kl,
-            hist_len=hist_len
+            target_kl=target_kl
         )
 
         metrics = {}
@@ -406,6 +392,7 @@ def train(
                 'reward': results.rewards.sum(dim=0).mean()  # Sum along step dim and average along env dim
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
+        metrics['num_goals_switched'] = num_goals_switched
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
