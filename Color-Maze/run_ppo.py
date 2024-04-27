@@ -39,7 +39,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space):
         super().__init__()
-        
+
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
             layer_init(nn.Conv2d(observation_space.shape[1], 32, kernel_size=3, stride=3, padding=0)),
@@ -105,7 +105,6 @@ class ActorCritic(nn.Module):
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), value
 
-
 def step(
         envs: Sequence[ParallelEnv],
         models: Mapping[str, ActorCritic],
@@ -157,8 +156,10 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
 
-    # next_observation_dicts, _ = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
-    next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
+    next_observation_dicts, _ = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
+    # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
+    
+    # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
     # breakpoint()
 
     next_observations = {
@@ -193,11 +194,22 @@ def step(
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, _ = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
+        if any('leader' not in terminated.keys() for terminated in terminated_dicts):
+            breakpoint()
+        
+
         next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
         for agent in models:
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(DEVICE).view(-1)
+
+        # if (step == 105):
+        #     breakpoint()
+        # if any('leader' not in terminated.keys() for terminated in terminated_dicts):
+        #     breakpoint()
+        #     # Consistently on step 106. Aha, but step 106 happens multiple times. Does this only break when env rollout (old reset) occurs?
+            # TODO understand where the 106 error comes from, and how related to env rollout.
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
         
@@ -350,7 +362,7 @@ def train(
     num_iterations = total_timesteps // batch_size
 
     # TODO conditionally use reward shaping based on args
-    penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=500).penalize_follower_close_to_leader
+    # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=500).penalize_follower_close_to_leader
     envs = [ColorMaze(history_length=hist_len) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # Observation and action spaces are the same for leader and follower
@@ -401,14 +413,19 @@ def train(
             wandb.log(metrics, step=iteration)
 
         if save_data_iters and iteration % save_data_iters == 0:
+            # TODO fix this now that we store history
+            # breakpoint() 
+            # step_results['leader'].observations : (rollout_steps, num_envs, history_len, channel, height, width)
+            # step_results['leader'].goal_info : (rollout_steps, num_envs, history_len, goal_dim)
             observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
             goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
             for i in range(observation_states.size(0)):
                 # TODO this will need to be updated once the leader can see true reward. We ought to log it too, to see when it changes during inspection.
                 trajectory = observation_states[i].numpy()
+                goal_infos_i = goal_infos[i].numpy()
                 os.makedirs(f'trajectories/{run_name}', exist_ok=True)
                 np.save(f"trajectories/{run_name}/trajectory_{iteration=}_env={i}.npy", trajectory)
-                np.save(f"trajectories/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos)
+                np.save(f"trajectories/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos_i)
 
         if debug_print:
             print(f"iter {iteration}: {metrics}")

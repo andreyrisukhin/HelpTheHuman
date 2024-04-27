@@ -12,7 +12,7 @@ from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best
 from pettingzoo import ParallelEnv
 
 import numpy as np
-from typing import Callable, Tuple
+from typing import Callable, Tuple, List
 from dataclasses import dataclass
 from enum import Enum
 from copy import copy
@@ -87,8 +87,8 @@ class ColorMaze(ParallelEnv):
         self.goal_switched = False
 
         # Agents
-        self.possible_agents = ["leader", "follower"]
-        self.agents = copy(self.possible_agents)
+        self.possible_agents:List[str] = ["leader", "follower"]
+        self.agents:List[str] = copy(self.possible_agents)
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
         self.leader_history = np.zeros((history_length, 1, xBoundary, yBoundary)) # History, channels (1), xrange, yrange
@@ -257,7 +257,8 @@ class ColorMaze(ParallelEnv):
         # self.rng = np.random.default_rng(seed=self.seed)
 
         # self.agents = copy(self.possible_agents)
-        # self.timestep = 0
+        
+        self.timestep = 0 # The timestep is used by step to decide whether to return agents or []. As part of debugging, enabling this time reset.
         # self.goal_switched = False
 
         # # Randomize initial locations
@@ -395,9 +396,16 @@ class ColorMaze(ParallelEnv):
         infos = {a: {} for a in self.agents}
 
         # Formatting by agent for the return types
-        terminateds = {a: termination for a in self.agents}
+
+        if (self.agents == []):
+            breakpoint()
+        terminateds = {a: termination for a in self.agents}        
         if termination:
             self.agents = []
+
+        if ('leader' not in terminateds.keys()):
+            breakpoint()
+
 
         observation = self._convert_to_observation(self.blocks)
         goal_info = np.zeros(NUM_COLORS)

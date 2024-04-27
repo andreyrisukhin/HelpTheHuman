@@ -5,11 +5,12 @@ from color_maze import ColorMaze, IDs
 
 
 def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = None):
-    assert trajectory.ndim == 4  # (step, channel, height, width)
-    assert goal_info.ndim == 2
+    breakpoint()
+    assert trajectory.ndim == 5  # (rollout_step, history, channel, height, width) 
+    assert goal_info.ndim == 4 # (envs, history, step?, goal_dim = 3)
     env = ColorMaze()
     env.reset()
-    for step in range(trajectory.shape[0]):
+    for step in range(trajectory.shape[1]): # trajectory.shape[0]
         obs = trajectory[step]
         print(f"Step {step}:")
         env.set_state_to_observation(obs)
