@@ -38,8 +38,9 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, observation_space, action_space):
+    def __init__(self, observation_space, action_space, device):
         super().__init__()
+        self.device = device
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
@@ -49,26 +50,26 @@ class ActorCritic(nn.Module):
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
-        )
+        ).to(device)
         self.feature_network = nn.Sequential(
             layer_init(nn.Linear(64*6*6 + 3, 192)),
             nn.Tanh(),
             nn.LSTM(192, 192, batch_first=True)
-        )
+        ).to(device)
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, action_space.n), std=0.01),
-        )
+        ).to(device)
         self.value_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 1), std=1.0),
-        )
+        ).to(device)
 
     def forward(self, x, goal_info):
         batch_size = x.size(0)
@@ -153,17 +154,17 @@ def step(
         observations = torch.zeros((num_steps, len(envs)) + list(observation_space_shapes.values())[0]).to(DEVICE)  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
         all_observations = {agent: observations for agent in models}
     else:
-        all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(DEVICE) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
+        all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
 
     all_goal_info = {
-       agent: torch.zeros((num_steps, len(envs)) + goal_info_shapes[agent]).to(DEVICE)
+       agent: torch.zeros((num_steps, len(envs)) + goal_info_shapes[agent]).to(models[agent].device)
        for agent in models
     }
-    all_actions = {agent: torch.zeros((num_steps, len(envs)) + action_space_shapes[agent]).to(DEVICE) for agent in models}
-    all_logprobs = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
-    all_rewards = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
-    all_dones = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
-    all_values = {agent: torch.zeros((num_steps, len(envs))).to(DEVICE) for agent in models}
+    all_actions = {agent: torch.zeros((num_steps, len(envs)) + action_space_shapes[agent]).to(models[agent].device) for agent in models}
+    all_logprobs = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
+    all_rewards = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
+    all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
+    all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
 
     next_observation_dicts, _ = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
@@ -180,13 +181,13 @@ def step(
             agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
             for agent in models
         }
-        next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
+        next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
     next_goal_info = {
         agent: np.array([obs_dict[agent]["goal_info"] for obs_dict in next_observation_dicts])
         for agent in models
     }
-    next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(DEVICE) for agent in models}
-    next_dones = {agent: torch.zeros(len(envs)).to(DEVICE) for agent in models}
+    next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
+    next_dones = {agent: torch.zeros(len(envs)).to(models[agent].device) for agent in models}
 
     for step in range(num_steps):
         step_actions = {}
@@ -216,7 +217,7 @@ def step(
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
         for agent in models:
-            all_rewards[agent][step] = torch.tensor(rewards[agent]).to(DEVICE).view(-1)
+            all_rewards[agent][step] = torch.tensor(rewards[agent]).to(models[agent].device).view(-1)
 
         # if (step == 105):
         #     breakpoint()
@@ -228,9 +229,9 @@ def step(
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
         
         # Convert to tensors
-        next_observations = {agent: torch.tensor(next_observations[agent]).to(DEVICE) for agent in models}
-        next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(DEVICE) for agent in models}
-        next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(DEVICE) for agent in models}
+        next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
+        next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
+        next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
 
     explained_var = {}
     acc_losses = {agent: 0 for agent in models}
@@ -238,7 +239,7 @@ def step(
         # bootstrap values if not done
         with torch.no_grad():
             next_values = model.get_value(next_observations[agent], next_goal_info[agent]).reshape(1, -1)
-            advantages = torch.zeros_like(all_rewards[agent]).to(DEVICE)
+            advantages = torch.zeros_like(all_rewards[agent]).to(model.device)
             lastgaelam = 0
             for t in reversed(range(num_steps)):
                 if t == num_steps - 1:
@@ -385,8 +386,19 @@ def train(
     follower_obs_space = envs[0].observation_spaces['follower']
     act_space = envs[0].action_space
 
-    leader = ActorCritic(leader_obs_space['observation'], act_space).to(DEVICE)  # type: ignore
-    follower = ActorCritic(follower_obs_space['observation'], act_space).to(DEVICE) # type: ignore
+    if torch.cuda.device_count() > 1:
+        model_devices = {
+            'leader': 'cuda:0',
+            'follower': 'cuda:1'
+        }
+    else:
+        model_devices = {
+            'leader': DEVICE,
+            'follower': DEVICE
+        }
+
+    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
+    follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
     models = {'leader': leader, 'follower': follower}
@@ -412,7 +424,7 @@ def train(
             value_func_coef=value_func_coef,
             max_grad_norm=max_grad_norm,
             target_kl=target_kl,
-            share_observation_tensors=True
+            share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
 
         metrics = {}
