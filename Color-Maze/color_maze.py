@@ -83,7 +83,7 @@ class ColorMaze(ParallelEnv):
         self.rng = np.random.default_rng(seed=self.seed)
         
         self.goal_block = IDs.RED
-        self.prob_block_switch = 0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
+        self.prob_block_switch = 2/3 * 1/32 # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
         self.goal_switched = False
 
         # Agents
