@@ -168,7 +168,9 @@ def step(
 
     next_observation_dicts, _ = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
-    
+    # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
+
+
     # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
     # breakpoint()
 
@@ -359,7 +361,7 @@ def train(
         max_grad_norm: float = 0.5,  # max gradnorm for gradient clipping
         target_kl: float | None = None,  # target KL divergence threshold
         # Config params
-        save_data_iters: int = 100,
+        save_data_iters: int = 100, # Save data every 100 iterations from num_iterations, calculated below
         checkpoint_iters: int = 0,
         debug_print: bool = False,
         log_to_wandb: bool = True,
@@ -380,6 +382,9 @@ def train(
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     envs = [ColorMaze(history_length=hist_len, reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+
+    # TODO call reset once for each env 
+
 
     # Observation and action spaces are the same for leader and follower
     leader_obs_space = envs[0].observation_spaces['leader']
@@ -441,14 +446,10 @@ def train(
             wandb.log(metrics, step=iteration)
 
         if save_data_iters and iteration % save_data_iters == 0:
-            # TODO fix this now that we store history
-            # breakpoint() 
-            # step_results['leader'].observations : (rollout_steps, num_envs, history_len, channel, height, width)
-            # step_results['leader'].goal_info : (rollout_steps, num_envs, history_len, goal_dim)
             observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
             goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
+                # (env, minibatch = bsz / num minibsz, history, goal_dim) : (4, 128, 64, 3)
             for i in range(observation_states.size(0)):
-                # TODO this will need to be updated once the leader can see true reward. We ought to log it too, to see when it changes during inspection.
                 trajectory = observation_states[i].numpy()
                 goal_infos_i = goal_infos[i].numpy()
                 os.makedirs(f'trajectories/{run_name}', exist_ok=True)
