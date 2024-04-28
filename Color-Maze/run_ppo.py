@@ -20,6 +20,7 @@ class StepData:
     observations: torch.Tensor
     actions: torch.Tensor
     rewards: torch.Tensor
+    individual_rewards: np.ndarray
     dones: torch.Tensor
     action_log_probs: torch.Tensor
     values: torch.Tensor
@@ -163,10 +164,11 @@ def step(
     all_actions = {agent: torch.zeros((num_steps, len(envs)) + action_space_shapes[agent]).to(models[agent].device) for agent in models}
     all_logprobs = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_rewards = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
+    all_individual_rewards = {agent: np.zeros((num_steps, len(envs))) for agent in models}
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, _ = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
+    next_observation_dicts, info_dicts = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
 
@@ -191,6 +193,11 @@ def step(
     next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
     next_dones = {agent: torch.zeros(len(envs)).to(models[agent].device) for agent in models}
 
+    next_individual_rewards = {
+        agent: np.array([info_dict[agent]["individual_reward"] for info_dict in info_dicts])
+        for agent in models
+    }
+
     for step in range(num_steps):
         step_actions = {}
 
@@ -210,16 +217,18 @@ def step(
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
-        next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, _ = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
+        next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
         if any('leader' not in terminated.keys() for terminated in terminated_dicts):
             breakpoint()
         
-
         next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
+        next_individual_rewards = {agent: np.array([info_dict[agent]["individual_reward"] for info_dict in info_dicts]) for agent in models}
         for agent in models:
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(models[agent].device).view(-1)
+            all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
+
 
         # if (step == 105):
         #     breakpoint()
@@ -331,6 +340,7 @@ def step(
             goal_info=all_goal_info[agent].cpu(),
             actions=all_actions[agent].cpu(),
             rewards=all_rewards[agent].cpu(),
+            individual_rewards=all_individual_rewards[agent],
             dones=all_dones[agent].cpu(),
             action_log_probs=all_logprobs[agent].cpu(),
             values=all_values[agent].cpu(),
@@ -437,7 +447,8 @@ def train(
             metrics[agent] = {
                 'loss': results.loss,
                 'explained_var': results.explained_var,
-                'reward': results.rewards.sum(dim=0).mean()  # Sum along step dim and average along env dim
+                'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
+                'individual_reward': results.individual_rewards.sum(axis=0).mean()  # Sum along step dim and average along env dim
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
