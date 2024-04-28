@@ -12,7 +12,7 @@ from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best
 from pettingzoo import ParallelEnv
 
 import numpy as np
-from typing import Callable, Tuple, List
+from typing import Callable, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
 from copy import copy
@@ -192,7 +192,7 @@ class ColorMaze(ParallelEnv):
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
         self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
 
-    def reset(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, np.ndarray]]]:
+    def reset(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, Any]]]:
         """Reset the environment to a starting point."""
         if seed is not None:
             self.seed = seed
@@ -243,12 +243,12 @@ class ColorMaze(ParallelEnv):
             }
         }
 
-        # Get dummy info, necessary for proper parallel_to_aec conversion
-        infos = {a: {} for a in self.agents}
+        # Get info, necessary for proper parallel_to_aec conversion
+        infos = {a: {"individual_reward": 0} for a in self.agents}
         return observations, infos
 
 
-    def get_obs_and_goal_info(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, np.ndarray]]]:
+    def get_obs_and_goal_info(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, Any]]]:
         """Used by run_ppo each rollout to update PPO based on observations and goal info. Importantly does not reset the environment."""
         # if seed is not None:
         #     self.seed = seed
@@ -300,11 +300,9 @@ class ColorMaze(ParallelEnv):
             }
         }
 
-        # Get dummy info, necessary for proper parallel_to_aec conversion
-        infos = {a: {} for a in self.agents}
+        # Get info, necessary for proper parallel_to_aec conversion
+        infos = {a: {"individual_reward": 0} for a in self.agents}
         return observations, infos
-
-
 
     def _consume_and_spawn_block(self, color_idx:int, x:int, y:int, blocks:np.ndarray) -> np.ndarray:
         blocks[color_idx, x, y] = 0
@@ -368,15 +366,21 @@ class ColorMaze(ParallelEnv):
                 action_mask[Moves.UP.value] = 0  # cant go up
 
         # Give rewards
+        individual_rewards = {
+            "leader": 0,
+            "follower": 0
+        }
         shared_reward = 0
         for agent, x, y in zip(["leader", "follower"], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
             if self.blocks[self.goal_block.value, x, y]:
                 shared_reward += 1
+                individual_rewards[agent] += 1
                 self.blocks = self._consume_and_spawn_block(self.goal_block.value, x, y, self.blocks)
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
                         shared_reward -= 1
+                        individual_rewards[agent] -= 1
                         self.blocks = self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break # Can't step on two non-rewarding blocks at once
 
@@ -385,6 +389,7 @@ class ColorMaze(ParallelEnv):
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
             rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, self.timestep)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, self.timestep)
 
         # Check termination conditions
         termination = False
@@ -392,8 +397,13 @@ class ColorMaze(ParallelEnv):
             termination = True
         self.timestep += 1
 
-        # Get dummy infos (not used in this example)
-        infos = {a: {} for a in self.agents}
+        # Get infos
+        infos = {
+            a: {
+                "individual_reward": individual_rewards[a]
+            } 
+            for a in self.agents
+        }
 
         # Formatting by agent for the return types
 
