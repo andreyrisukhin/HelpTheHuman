@@ -354,6 +354,8 @@ def step(
 
 def train(
         run_name: str | None = None,
+        resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
+        resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         # PPO params
         total_timesteps: int = 500000,
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -378,8 +380,11 @@ def train(
         hist_len: int = 5,
         seed: int = 42,
 ):
+    if resume_iter:
+        assert resume_wandb_id is not None, "Must provide W&B ID to resume from checkpoint"
+
     if log_to_wandb:
-        wandb.init(entity='kavel', project='help-the-human', name=run_name)
+        wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
     os.makedirs(f'results/{run_name}', exist_ok=True)
 
     torch.manual_seed(seed)
@@ -419,9 +424,19 @@ def train(
     models = {'leader': leader, 'follower': follower}
     optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
+    if resume_iter:
+        # Load checkpoint state to resume run
+        # TODO add optimizer loading as well here -- omitted for now because only just added optimizer state checkpointing.
+        for agent_name, model in models.items():
+            model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
+            model.load_state_dict(torch.load(model_path))
+
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
+        if resume_iter and iteration <= resume_iter:
+            continue
+
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
@@ -474,6 +489,8 @@ def train(
             print(f"Saving models at epoch {iteration}")
             for agent_name, model in models.items():
                 torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
+                optimizer = optimizers[agent_name]
+                torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
 
     for agent_name, model in models.items():
         torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
