@@ -124,6 +124,7 @@ def step(
         entropy_coef: float,
         value_func_coef: float,
         max_grad_norm: float,
+        seed: int,
         target_kl: float | None,
         share_observation_tensors: bool = True
 ) -> Tuple[dict[str, StepData], int]:
@@ -168,7 +169,7 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset() for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
 
@@ -453,6 +454,7 @@ def train(
             entropy_coef=entropy_coef,
             value_func_coef=value_func_coef,
             max_grad_norm=max_grad_norm,
+            seed=seed,
             target_kl=target_kl,
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
