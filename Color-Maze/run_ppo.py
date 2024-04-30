@@ -427,6 +427,7 @@ def train(
 
     if resume_iter:
         # Load checkpoint state to resume run
+        print(f"Resuming from iteration {resume_iter}")
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
             optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
