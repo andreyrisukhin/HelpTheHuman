@@ -427,10 +427,11 @@ def train(
 
     if resume_iter:
         # Load checkpoint state to resume run
-        # TODO add optimizer loading as well here -- omitted for now because only just added optimizer state checkpointing.
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
+            optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
             model.load_state_dict(torch.load(model_path))
+            optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
 
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
