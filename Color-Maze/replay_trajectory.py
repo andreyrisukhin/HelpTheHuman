@@ -10,13 +10,11 @@ def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = Non
 
     most_recent_trajectory = trajectory[:,-1]
     most_recent_goal_info = goal_info[:,-1]
-    breakpoint()
     env = ColorMaze()
     env.reset()
     for step in range(most_recent_trajectory.shape[0]):
         obs = most_recent_trajectory[step]
         print(f"Step {step}:")
-        # breakpoint()
         env.set_state_to_observation(obs)
         env.render()
         if most_recent_goal_info is not None:
