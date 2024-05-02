@@ -509,6 +509,8 @@ def train(
 
     for agent_name, model in models.items():
         torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
+        optimizer = optimizers[agent_name]
+        torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
 
 
 if __name__ == '__main__':
