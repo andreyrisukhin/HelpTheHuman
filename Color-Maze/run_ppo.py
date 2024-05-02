@@ -489,7 +489,7 @@ def train(
         if save_data_iters and iteration % save_data_iters == 0:
             observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
             goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-                # (env, minibatch = bsz / num minibsz, goal_dim) : (4, 128, 64, 3)
+                # (env, minibatch = bsz / num minibsz, goal_dim)
             for i in range(observation_states.size(0)):
                 trajectory = observation_states[i].numpy()
                 goal_infos_i = goal_infos[i].numpy()
