@@ -41,6 +41,7 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, device):
         super().__init__()
+        self.lstm_hidden_size = 192
         self.device = device
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
@@ -52,11 +53,11 @@ class ActorCritic(nn.Module):
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
         ).to(device)
-        self.feature_network = nn.Sequential(
+        self.feature_linear = nn.Sequential(
             layer_init(nn.Linear(64*6*6 + 3, 192)),
             nn.Tanh(),
-            nn.LSTM(192, 192, batch_first=True)
         ).to(device)
+        self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),
             nn.Tanh(),
@@ -72,7 +73,7 @@ class ActorCritic(nn.Module):
             layer_init(nn.Linear(64, 1), std=1.0),
         ).to(device)
 
-    def forward(self, x, goal_info):
+    def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         batch_size = x.size(0)
 
         # Collapse sequence dimension into batch dim
@@ -90,23 +91,26 @@ class ActorCritic(nn.Module):
 
         # Append one-hot reward encoding
         features = torch.cat((features, goal_info), dim=2)
-        features, (hidden_states, cell_states) = self.feature_network(features)
+        features = self.feature_linear(features)
+
+        # Pass through LSTM
+        features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
 
         # Grab all batches and remove history dimension
         # features: (batch_size, history_length, feature_size)
         # last_timestep_features: (batch_size, feature_size)
         last_timestep_features = features[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features)
+        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
 
-    def get_value(self, x, goal_info):
-        return self.forward(x, goal_info=goal_info)[1]
+    def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
+        return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
 
-    def get_action_and_value(self, x, goal_info, action=None):
-        logits, value = self(x, goal_info=goal_info)
+    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
+        logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
         probs = Categorical(logits=logits)
         if action is None:
             action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), value
+        return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
 
 def step(
         envs: Sequence[ParallelEnv],
@@ -169,6 +173,10 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
 
+    # num_steps + 1 so that indexing by step gives the *input* states at that step
+    lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
+    lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
+
     next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
@@ -208,8 +216,10 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value = model.get_action_and_value(next_observations[agent], next_goal_info[agent])
+                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
                 step_actions[agent] = action.cpu().numpy()
+                lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
+                lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
 
                 all_actions[agent][step] = action
                 all_logprobs[agent][step] = logprob
@@ -250,7 +260,7 @@ def step(
     for agent, model in models.items():
         # bootstrap values if not done
         with torch.no_grad():
-            next_values = model.get_value(next_observations[agent], next_goal_info[agent]).reshape(1, -1)
+            next_values = model.get_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][-1], lstm_cell_states[agent][-1])).reshape(1, -1)
             advantages = torch.zeros_like(all_rewards[agent]).to(model.device)
             lastgaelam = 0
             for t in reversed(range(num_steps)):
@@ -272,6 +282,8 @@ def step(
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = all_values[agent].reshape(-1)
+        b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
+        b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
 
         # Optimizing the policy and value network
         b_inds = np.arange(batch_size)
@@ -282,10 +294,11 @@ def step(
                 end = start + minibatch_size
                 mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue = model.get_action_and_value(
+                _, newlogprob, entropy, newvalue, _ = model.get_action_and_value(
                     b_obs[mb_inds], 
                     goal_info=b_goal_info.long()[mb_inds], 
-                    action=b_actions.long()[mb_inds]
+                    action=b_actions.long()[mb_inds],
+                    prev_hidden_and_cell_states=(b_lstm_hidden_states[mb_inds], b_lstm_cell_states[mb_inds]),
                 )
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
