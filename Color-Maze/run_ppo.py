@@ -21,6 +21,7 @@ class StepData:
     actions: torch.Tensor
     rewards: torch.Tensor
     individual_rewards: np.ndarray
+    shared_rewards: np.ndarray
     dones: torch.Tensor
     action_log_probs: torch.Tensor
     values: torch.Tensor
@@ -166,6 +167,7 @@ def step(
     all_logprobs = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_rewards = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_individual_rewards = {agent: np.zeros((num_steps, len(envs))) for agent in models}
+    all_shared_rewards = {agent: np.zeros((num_steps, len(envs))) for agent in models}
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
 
@@ -226,9 +228,11 @@ def step(
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
         next_individual_rewards = {agent: np.array([info_dict[agent]["individual_reward"] for info_dict in info_dicts]) for agent in models}
+        next_shared_rewards = {agent: np.array([info_dict[agent]["shared_reward"] for info_dict in info_dicts]) for agent in models}
         for agent in models:
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(models[agent].device).view(-1)
             all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
+            all_shared_rewards[agent][step] = next_shared_rewards[agent].reshape(-1)
 
 
         # if (step == 105):
@@ -342,6 +346,7 @@ def step(
             actions=all_actions[agent].cpu(),
             rewards=all_rewards[agent].cpu(),
             individual_rewards=all_individual_rewards[agent],
+            shared_rewards=all_shared_rewards[agent],
             dones=all_dones[agent].cpu(),
             action_log_probs=all_logprobs[agent].cpu(),
             values=all_values[agent].cpu(),
@@ -396,8 +401,8 @@ def train(
 
     # TODO conditionally use reward shaping based on args
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
-    penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    envs = [ColorMaze(history_length=hist_len, reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
+    envs = [ColorMaze(history_length=hist_len, reward_shaping_fns=[]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
@@ -467,7 +472,8 @@ def train(
                 'loss': results.loss,
                 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
-                'individual_reward': results.individual_rewards.sum(axis=0).mean()  # Sum along step dim and average along env dim
+                'individual_reward': results.individual_rewards.sum(axis=0).mean(),
+                'shared_reward': results.shared_rewards.sum(axis=0).mean()  
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
