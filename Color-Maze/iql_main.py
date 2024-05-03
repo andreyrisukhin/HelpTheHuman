@@ -31,11 +31,11 @@ Use IQL
 
 """
 
-def  (log, env_name, max_episode_steps):
+def get_env_and_dataset(log, env_name, max_episode_steps):
     env = gym.make(env_name)
     dataset = d4rl.qlearning_dataset(env)
 
-    our_env = ColorMaze() # TODO check init params
+    our_env = ColorMaze() # TODO check init params, set seed here instead of in main()?
     our_dataset = our_env.get_qlearnng_dataset()
 
     # TODO replace with our env. env.get_dataset() -> observations, actions, rewards, terminals, timeouts, infos.
@@ -67,10 +67,12 @@ def main(args):
     act_dim = dataset['actions'].shape[1]   # this assume continuous actions
     set_seed(args.seed, env=env)
 
-    if args.deterministic_policy:
-        policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
-    else:
-        policy = GaussianPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+    # if args.deterministic_policy:
+    #     policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+    # else:
+    #     policy = GaussianPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+    policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
+
     def eval_policy():
         eval_returns = np.array([evaluate_policy(env, policy, args.max_episode_steps) \
                                  for _ in range(args.n_eval_episodes)])

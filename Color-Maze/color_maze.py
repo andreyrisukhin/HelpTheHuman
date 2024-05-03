@@ -138,6 +138,8 @@ class ColorMaze(ParallelEnv):
             "next_observations": np.zeros((1, xBoundary, yBoundary))
         }
 
+        return dataset
+
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
             other_colors = list(range(NUM_COLORS))
