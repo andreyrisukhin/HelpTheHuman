@@ -129,9 +129,16 @@ class ColorMaze(ParallelEnv):
         Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
         """
         dataset = { # TODO fix this, replace with actual self . blocks
-            "observations": np.zeros((1, xBoundary, yBoundary)),
-            "actions": np.zeros((1, NUM_MOVES)),
-            "rewards": np.zeros(1),
+            # "observations": np.zeros((1, xBoundary, yBoundary)),
+            # "actions": np.zeros((1, NUM_MOVES)),
+            # "rewards": np.zeros(1),
+            # "terminals": np.zeros(1),
+            # "timeouts": np.zeros(1),
+            # "infos": np.zeros(1),
+            # "next_observations": np.zeros((1, xBoundary, yBoundary))
+            "observations": self.observation_spaces,
+            "actions": self.action_space,
+            "rewards": self.,
             "terminals": np.zeros(1),
             "timeouts": np.zeros(1),
             "infos": np.zeros(1),

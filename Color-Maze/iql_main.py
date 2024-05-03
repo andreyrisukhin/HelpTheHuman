@@ -29,9 +29,36 @@ Replay buffer should store tuples (s, a, r, s') for IQL. // no discount or argma
 
 Use IQL
 
+Andrey: confused what this means, use a frozen model to collect data? And use that "expert" data for q-learning?
+
+"""
+
+""" Sriyash OH 5-3-2024
+ensure that the behavior we want to extract is represented in the dataset, offline RL will not do anything novel
+    can be collection or 1, but must be covered
+    Reward labels are also needed
+
+Start with 1M timesteps, this is standard (especially since we are not using img channels)
+    Use the Jax implementation, blazing fast (Natasha also mentioned)
+        do 2 things
+        1) create offline RL env the way it wants us to create. Write conv net ourselves, because Jax has code for flattened vectors. Use the encoders from https://github.com/dibyaghosh/jaxrl_m/blob/main/jaxrl_m/vision/small_encoders.py
+
+    1k timesteps, 20 min
+
+    Check website for compute access via class
+
+    dr4l stores as hdf5 file, dict of their info. Flattened vec, 1M x 32 x 32 x 5. Be careful storing terminals! Next obs in d4rl is sometimes the first obs of next env, if terminated. They store with an offset [0, -1] [1, end]
+        1M time steps: extract obs. They index [0, 999999] as obs for first. Then index [100, 1M]. The env assumes we mask out last obs anyway
+
 """
 
 def get_env_and_dataset(log, env_name, max_episode_steps):
+    """
+    Should we instead be loading checkpoints from a frozen data collection run?
+    'Each task is associated with a fixed offline dataset, which can be obtained with the env.get_dataset() method' implies we should create a dataset from an env and fully trained policy. Does that sound right?
+    """
+
+
     env = gym.make(env_name)
     dataset = d4rl.qlearning_dataset(env)
 
