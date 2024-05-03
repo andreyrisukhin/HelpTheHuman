@@ -6,11 +6,12 @@ import numpy as np
 import torch
 from tqdm import trange
 
-from src.iql import ImplicitQLearning
-from src.policy import GaussianPolicy, DeterministicPolicy
-from src.value_functions import TwinQ, ValueFunction
-from src.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
+from src_iql_gwthomas.iql import ImplicitQLearning
+from src_iql_gwthomas.policy import GaussianPolicy, DeterministicPolicy
+from src_iql_gwthomas.value_functions import TwinQ, ValueFunction
+from src_iql_gwthomas.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
 
+from color_maze import ColorMaze
 
 """
 Notes about IQL
@@ -33,6 +34,9 @@ Use IQL
 def get_env_and_dataset(log, env_name, max_episode_steps):
     env = gym.make(env_name)
     dataset = d4rl.qlearning_dataset(env)
+
+    our_env = 
+
     # TODO replace with our env. env.get_dataset() -> observations, actions, rewards, terminals, timeouts, infos.
     # .qlearning_dataset() also returns a next_observations
 
