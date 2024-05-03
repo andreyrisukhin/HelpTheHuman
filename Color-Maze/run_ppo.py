@@ -59,7 +59,7 @@ class ActorCritic(nn.Module):
         ).to(device)
         self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
         self.policy_network = nn.Sequential(
-            layer_init(nn.Linear(192, 64)),
+            layer_init(nn.Linear(self.lstm_hidden_size, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
