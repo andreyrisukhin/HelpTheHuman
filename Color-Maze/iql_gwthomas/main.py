@@ -12,9 +12,31 @@ from src.value_functions import TwinQ, ValueFunction
 from src.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
 
 
+"""
+Notes about IQL
+
+QL is optimistic in face of uncertainty: taking max over noise is overoptimistic 
+* Q_policy () = ..<s,a>. + discount * argmax_a' (Q_target(a',s))
+* If there are four distributional measurements, and I've observed a3 more than a4, a4 will be noisier -> could be greater than a3
+* This is because we are estimating value | observed values. Observing action a changes the distribution of Expected[value_a]
+
+To compensate, offline RL is pessimistic: Q_target updates slower than Q_policy, 100-1000x, and updates to approach Q_policy.
+This works empirically, and 10yrs later due to avoiding rank collapse (1000x slower means Qtarget and Qpolicy are different enough)
+https://arxiv.org/abs/2010.14498 
+
+Replay buffer should store tuples (s, a, r, s') for IQL. // no discount or argmax around Q(a',s) with buffer (s, a, r, s', a') for CQL.
+
+Use IQL
+
+"""
+
 def get_env_and_dataset(log, env_name, max_episode_steps):
     env = gym.make(env_name)
     dataset = d4rl.qlearning_dataset(env)
+    # TODO replace with our env. env.get_dataset() -> observations, actions, rewards, terminals, timeouts, infos.
+    # .qlearning_dataset() also returns a next_observations
+
+    # Replay buffer (s,a,r,s') (observations, actions, rewards, next_observations)
 
     if any(s in env_name for s in ('halfcheetah', 'hopper', 'walker2d')):
         min_ret, max_ret = return_range(dataset, max_episode_steps)
