@@ -5,20 +5,18 @@ from color_maze import ColorMaze, IDs
 
 
 def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = None):
-    assert trajectory.ndim == 5  # (minibatch_step, history, channel, height, width) 
-    assert goal_info.ndim == 3 # (minibatch step, history, goal_dim = 3)
+    assert trajectory.ndim == 4  # (minibatch_step, channel, height, width) 
+    assert goal_info is None or goal_info.ndim == 2 # (minibatch step, goal_dim = 3)
 
-    most_recent_trajectory = trajectory[:,-1]
-    most_recent_goal_info = goal_info[:,-1]
     env = ColorMaze()
     env.reset()
-    for step in range(most_recent_trajectory.shape[0]):
-        obs = most_recent_trajectory[step]
+    for step in range(trajectory.shape[0]):
+        obs = trajectory[step]
         print(f"Step {step}:")
         env.set_state_to_observation(obs)
         env.render()
-        if most_recent_goal_info is not None:
-            goal_idx = np.argmax(most_recent_goal_info[step])
+        if goal_info is not None:
+            goal_idx = np.argmax(goal_info[step])
             print(f'Current goal: {IDs(goal_idx)}')
         input("Press any key to continue:")
 

@@ -42,24 +42,25 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, device):
         super().__init__()
+        self.lstm_hidden_size = 192
         self.device = device
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[1], 32, kernel_size=3, stride=3, padding=0)),
+            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
         ).to(device)
-        self.feature_network = nn.Sequential(
+        self.feature_linear = nn.Sequential(
             layer_init(nn.Linear(64*6*6 + 3, 192)),
             nn.Tanh(),
-            nn.LSTM(192, 192, batch_first=True)
         ).to(device)
+        self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
         self.policy_network = nn.Sequential(
-            layer_init(nn.Linear(192, 64)),
+            layer_init(nn.Linear(self.lstm_hidden_size, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
@@ -73,41 +74,43 @@ class ActorCritic(nn.Module):
             layer_init(nn.Linear(64, 1), std=1.0),
         ).to(device)
 
-    def forward(self, x, goal_info):
+    def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         batch_size = x.size(0)
-
-        # Collapse sequence dimension into batch dim
-        x = x.flatten(start_dim=0, end_dim=1)
 
         # Apply conv network in parallel on each sequence slice
         features = self.conv_network(x)
 
-        # Recover batch and sequence length dimensions
-        features = features.unflatten(0, (batch_size, -1))
-
         # Flatten convolution output channels into linear input
-        # New shape: (batch_size, history_length, flattened_size)
-        features = features.flatten(start_dim=2)
+        # New shape: (batch_size, flattened_size)
+        features = features.flatten(start_dim=1)
 
         # Append one-hot reward encoding
-        features = torch.cat((features, goal_info), dim=2)
-        features, (hidden_states, cell_states) = self.feature_network(features)
+        features = torch.cat((features, goal_info), dim=1)
+        features = self.feature_linear(features)
 
-        # Grab all batches and remove history dimension
-        # features: (batch_size, history_length, feature_size)
+        # Pass through LSTM; add singular sequence length dimension for LSTM input
+        features = features.reshape(batch_size, 1, -1)
+        if prev_hidden_and_cell_states is not None:
+            prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
+            prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
+            prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
+        features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
+
+        # Grab all batches and remove sequence length dimension
+        # features: (batch_size, 1, feature_size)
         # last_timestep_features: (batch_size, feature_size)
         last_timestep_features = features[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features)
+        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
 
-    def get_value(self, x, goal_info):
-        return self.forward(x, goal_info=goal_info)[1]
+    def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
+        return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
 
-    def get_action_and_value(self, x, goal_info, action=None):
-        logits, value = self(x, goal_info=goal_info)
+    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
+        logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
         probs = Categorical(logits=logits)
         if action is None:
             action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), value
+        return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
 
 def step(
         envs: Sequence[ParallelEnv],
@@ -171,6 +174,10 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
 
+    # num_steps + 1 so that indexing by step gives the *input* states at that step
+    lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
+    lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
+
     next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
@@ -210,8 +217,10 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value = model.get_action_and_value(next_observations[agent], next_goal_info[agent])
+                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
                 step_actions[agent] = action.cpu().numpy()
+                lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
+                lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
 
                 all_actions[agent][step] = action
                 all_logprobs[agent][step] = logprob
@@ -254,7 +263,7 @@ def step(
     for agent, model in models.items():
         # bootstrap values if not done
         with torch.no_grad():
-            next_values = model.get_value(next_observations[agent], next_goal_info[agent]).reshape(1, -1)
+            next_values = model.get_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][-1], lstm_cell_states[agent][-1])).reshape(1, -1)
             advantages = torch.zeros_like(all_rewards[agent]).to(model.device)
             lastgaelam = 0
             for t in reversed(range(num_steps)):
@@ -276,6 +285,8 @@ def step(
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = all_values[agent].reshape(-1)
+        b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
+        b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
 
         # Optimizing the policy and value network
         b_inds = np.arange(batch_size)
@@ -286,10 +297,11 @@ def step(
                 end = start + minibatch_size
                 mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue = model.get_action_and_value(
+                _, newlogprob, entropy, newvalue, _ = model.get_action_and_value(
                     b_obs[mb_inds], 
                     goal_info=b_goal_info.long()[mb_inds], 
-                    action=b_actions.long()[mb_inds]
+                    action=b_actions.long()[mb_inds],
+                    prev_hidden_and_cell_states=(b_lstm_hidden_states[mb_inds], b_lstm_cell_states[mb_inds]),
                 )
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
@@ -383,7 +395,6 @@ def train(
         checkpoint_iters: int = 0,
         debug_print: bool = False,
         log_to_wandb: bool = True,
-        hist_len: int = 5,
         seed: int = 42,
 ):
     if resume_iter:
@@ -403,6 +414,8 @@ def train(
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
     # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     envs = [ColorMaze(history_length=hist_len, reward_shaping_fns=[]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
+    envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
@@ -484,7 +497,7 @@ def train(
         if save_data_iters and iteration % save_data_iters == 0:
             observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
             goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-                # (env, minibatch = bsz / num minibsz, history, goal_dim) : (4, 128, 64, 3)
+                # (env, minibatch = bsz / num minibsz, goal_dim)
             for i in range(observation_states.size(0)):
                 trajectory = observation_states[i].numpy()
                 goal_infos_i = goal_infos[i].numpy()
@@ -504,6 +517,8 @@ def train(
 
     for agent_name, model in models.items():
         torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
+        optimizer = optimizers[agent_name]
+        torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
 
 
 if __name__ == '__main__':
