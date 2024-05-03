@@ -340,7 +340,8 @@ class ColorMaze(ParallelEnv):
         # Get infos
         infos = {
             a: {
-                "individual_reward": individual_rewards[a]
+                "individual_reward": individual_rewards[a],
+                "shared_reward": rewards[a],
             } 
             for a in self.agents
         }
@@ -372,7 +373,7 @@ class ColorMaze(ParallelEnv):
             }
         }
         truncateds = terminateds
-        return observations, rewards, terminateds, truncateds, infos
+        return observations, individual_rewards, terminateds, truncateds, infos
 
     def render(self):
         """Render the environment."""
