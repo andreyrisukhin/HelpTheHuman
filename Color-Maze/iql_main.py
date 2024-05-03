@@ -31,11 +31,12 @@ Use IQL
 
 """
 
-def get_env_and_dataset(log, env_name, max_episode_steps):
+def  (log, env_name, max_episode_steps):
     env = gym.make(env_name)
     dataset = d4rl.qlearning_dataset(env)
 
-    our_env = 
+    our_env = ColorMaze() # TODO check init params
+    our_dataset = our_env.get_qlearnng_dataset()
 
     # TODO replace with our env. env.get_dataset() -> observations, actions, rewards, terminals, timeouts, infos.
     # .qlearning_dataset() also returns a next_observations
