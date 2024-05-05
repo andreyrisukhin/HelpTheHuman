@@ -374,6 +374,7 @@ def train(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
+        warmstart_leader_path: str | None = None,
         # PPO params
         total_timesteps: int = 500000,
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -413,9 +414,9 @@ def train(
     # TODO conditionally use reward shaping based on args
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
     # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    envs = [ColorMaze(history_length=hist_len, reward_shaping_fns=[]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
@@ -451,6 +452,9 @@ def train(
             optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
             model.load_state_dict(torch.load(model_path))
             optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
+    elif warmstart_leader_path:
+        print(f"Warmstarting leader model from {warmstart_leader_path}")
+        leader.load_state_dict(torch.load(warmstart_leader_path))
 
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
