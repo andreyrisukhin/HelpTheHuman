@@ -455,6 +455,8 @@ def train(
     elif warmstart_leader_path:
         print(f"Warmstarting leader model from {warmstart_leader_path}")
         leader.load_state_dict(torch.load(warmstart_leader_path))
+        optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
+        optimizers['leader'].load_state_dict(torch.load(optimizer_path))
 
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
