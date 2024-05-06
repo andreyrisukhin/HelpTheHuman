@@ -105,11 +105,12 @@ class ActorCritic(nn.Module):
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
 
-    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
+    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None, sampling_temperature: float = 1.0):
         logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
         probs = Categorical(logits=logits)
         if action is None:
-            action = probs.sample()
+            sampling_probs = Categorical(logits=logits / sampling_temperature)
+            action = sampling_probs.sample()
         return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
 
 def step(
@@ -130,6 +131,7 @@ def step(
         max_grad_norm: float,
         seeds: list[int],
         target_kl: float | None,
+        sampling_temperature: float = 1.0,
         share_observation_tensors: bool = True
 ) -> Tuple[dict[str, StepData], int]:
     """
@@ -217,7 +219,12 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
+                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(
+                    next_observations[agent],
+                    next_goal_info[agent],
+                    prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
+                    sampling_temperature=sampling_temperature
+                )
                 step_actions[agent] = action.cpu().numpy()
                 lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
                 lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
@@ -407,6 +414,7 @@ def train(
         value_func_coef: float = 0.5,
         max_grad_norm: float = 0.5,  # max gradnorm for gradient clipping
         target_kl: float | None = None,  # target KL divergence threshold
+        sampling_temperature: float = 1.0,
         # Config params
         save_data_iters: int = 100, # Save data every 100 iterations from num_iterations, calculated below
         checkpoint_iters: int = 0,
@@ -499,6 +507,7 @@ def train(
             max_grad_norm=max_grad_norm,
             seeds=env_seeds,
             target_kl=target_kl,
+            sampling_temperature=sampling_temperature,
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
 
