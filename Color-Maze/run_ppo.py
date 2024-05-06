@@ -128,7 +128,7 @@ def step(
         entropy_coef: float,
         value_func_coef: float,
         max_grad_norm: float,
-        seed: int,
+        seeds: list[int],
         target_kl: float | None,
         share_observation_tensors: bool = True
 ) -> Tuple[dict[str, StepData], int]:
@@ -178,7 +178,7 @@ def step(
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
 
@@ -292,6 +292,22 @@ def step(
         b_inds = np.arange(batch_size)
         clipfracs = []
         for epoch in range(ppo_update_epochs):
+            # TODO i think ESL-MARL is shuffling while preserving some trajectory ordering,
+            # and they give the hidden state for only the initial observation for each mini-trajectory.
+            """
+            Each parameter update consists of 20 sequential mini-batch
+            updates with the same batch of rollouts (128 episodes).
+            Each mini-batch consists of a uniform random sample of
+            trajectories from that batch. Hidden states are stored alongside 
+            the trajectories, and the initial hidden state for each
+            mini-batch trajectory is retrieved from these stored values.
+            Hidden states and advantage values for the entire batch are
+            re-calculated every 2 mini-batches. The mini-batch iteration
+            ceases if KL(𝜋, 𝜋𝑟𝑜𝑙𝑙𝑜𝑢𝑡) exceeds a target of 0.01. If for any
+            mini-batch the estimated divergence exceeds a hard limit of
+            0.03, the update terminates and all changes to the network
+            parameters and optimizer state are reverted.
+            """
             np.random.shuffle(b_inds)
             for start in range(0, batch_size, minibatch_size):
                 end = start + minibatch_size
@@ -406,6 +422,7 @@ def train(
     os.makedirs(f'results/{run_name}', exist_ok=True)
 
     torch.manual_seed(seed)
+    env_seeds = [seed + i for i in range(num_envs)]
 
     batch_size = num_envs * num_steps_per_rollout
     minibatch_size = batch_size // num_minibatches
@@ -480,7 +497,7 @@ def train(
             entropy_coef=entropy_coef,
             value_func_coef=value_func_coef,
             max_grad_norm=max_grad_norm,
-            seed=seed,
+            seeds=env_seeds,
             target_kl=target_kl,
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
@@ -520,6 +537,9 @@ def train(
                 torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
                 optimizer = optimizers[agent_name]
                 torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
+
+        for i in range(len(envs)):
+            env_seeds[i] += len(envs)
 
     for agent_name, model in models.items():
         torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
