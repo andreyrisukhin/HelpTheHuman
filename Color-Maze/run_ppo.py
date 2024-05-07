@@ -24,6 +24,7 @@ class StepData:
     shared_rewards: np.ndarray
     dones: torch.Tensor
     action_log_probs: torch.Tensor
+    action_entropies: np.ndarray
     values: torch.Tensor
     loss: float
     explained_var: float
@@ -175,6 +176,7 @@ def step(
     all_shared_rewards = {agent: np.zeros((num_steps, len(envs))) for agent in models}
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
+    all_entropies = {agent: np.zeros((num_steps, len(envs))) for agent in models}
 
     # num_steps + 1 so that indexing by step gives the *input* states at that step
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
@@ -219,7 +221,7 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(
+                action, logprob, entropy, value, (hidden_states, cell_states) = model.get_action_and_value(
                     next_observations[agent],
                     next_goal_info[agent],
                     prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
@@ -232,6 +234,7 @@ def step(
                 all_actions[agent][step] = action
                 all_logprobs[agent][step] = logprob
                 all_values[agent][step] = value.flatten()
+                all_entropies[agent][step] = entropy.flatten().cpu().numpy()
 
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
@@ -384,6 +387,7 @@ def step(
             shared_rewards=all_shared_rewards[agent],
             dones=all_dones[agent].cpu(),
             action_log_probs=all_logprobs[agent].cpu(),
+            action_entropies=all_entropies[agent],
             values=all_values[agent].cpu(),
             loss=acc_losses[agent] / ppo_update_epochs,
             explained_var=explained_var[agent],
@@ -518,7 +522,8 @@ def train(
                 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
                 'individual_reward': results.individual_rewards.sum(axis=0).mean(),
-                'shared_reward': results.shared_rewards.sum(axis=0).mean()  
+                'shared_reward': results.shared_rewards.sum(axis=0).mean(),
+                'action_entropy': results.action_entropies.mean()
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
