@@ -148,7 +148,6 @@ class ColorMaze(ParallelEnv):
         # return dataset
 
     def _randomize_goal_block(self): 
-        return
         if self.rng.random() < self.prob_block_switch:
             other_colors = list(range(NUM_COLORS))
             other_colors.remove(self.goal_block.value)            
