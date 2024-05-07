@@ -101,7 +101,7 @@ class ActorCritic(nn.Module):
         # Grab all batches and remove sequence length dimension
         # features: (batch_size, 1, feature_size)
         # last_timestep_features: (batch_size, feature_size)
-        last_timestep_features = features  #[:, -1, ...].squeeze(1)
+        last_timestep_features = features[:, -1, ...].squeeze(1)
         return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
 
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
