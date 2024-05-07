@@ -374,7 +374,7 @@ class ColorMaze(ParallelEnv):
             }
         }
         truncateds = terminateds
-        return observations, individual_rewards, terminateds, truncateds, infos
+        return observations, rewards, terminateds, truncateds, infos
 
     def render(self):
         """Render the environment."""
