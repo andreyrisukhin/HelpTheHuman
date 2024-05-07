@@ -217,8 +217,8 @@ class ColorMaze(ParallelEnv):
 
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
 
-        # Randomly place 20% blocks (in a 32x32, 68 blocks of each color)
-        for _ in range(68):
+        # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
+        for _ in range(16):
             self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
