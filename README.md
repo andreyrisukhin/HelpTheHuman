@@ -33,3 +33,7 @@ To cite PettingZoo in publication, please use
   year={2021}
 }
 ```
+
+
+
+Warning: Gym version v0.24.1 has a number of critical issues with `gym.make` such that environment observation and action spaces are incorrectly evaluated, raising incorrect errors and warning . It is recommend to downgrading to v0.23.1 or upgrading to v0.25.1

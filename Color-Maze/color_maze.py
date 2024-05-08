@@ -93,7 +93,6 @@ class ColorMaze(ParallelEnv):
         self.agents:List[str] = copy(self.possible_agents)
         self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
         self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
-        self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
@@ -106,6 +105,8 @@ class ColorMaze(ParallelEnv):
         # Spaces
         goal_block_space = MultiDiscrete([2] * NUM_COLORS)
 
+        # Dataset fields, standard returned information
+        self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
         self.observation_spaces = { # Python dict, not gym spaces Dict.
             "leader": DictSpace({
                 "observation": board_space,
