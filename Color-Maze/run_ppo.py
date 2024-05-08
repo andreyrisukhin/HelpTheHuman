@@ -56,7 +56,7 @@ class ActorCritic(nn.Module):
             nn.LeakyReLU(),
         ).to(device)
         self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(64*6*6 + 3, 192)),
+            layer_init(nn.Linear(64*6*6, 192)),
             nn.Tanh(),
             layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
@@ -88,7 +88,7 @@ class ActorCritic(nn.Module):
         features = features.flatten(start_dim=1)
 
         # Append one-hot reward encoding
-        features = torch.cat((features, goal_info), dim=1)
+        # features = torch.cat((features, goal_info), dim=1)
         features = self.feature_linear(features)
 
         # # Pass through LSTM; add singular sequence length dimension for LSTM input
