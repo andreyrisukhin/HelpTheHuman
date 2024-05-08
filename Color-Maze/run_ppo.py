@@ -391,6 +391,7 @@ def train(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
+        leader_only: bool = False,
         warmstart_leader_path: str | None = None,
         # PPO params
         total_timesteps: int = 500000,
@@ -435,15 +436,11 @@ def train(
     # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-    envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(leader_only=leader_only) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
 
-    # Observation and action spaces are the same for leader and follower
-    leader_obs_space = envs[0].observation_spaces['leader']
-    follower_obs_space = envs[0].observation_spaces['follower']
-    act_space = envs[0].action_space
 
     if torch.cuda.device_count() > 1:
         model_devices = {
@@ -456,12 +453,20 @@ def train(
             'follower': DEVICE
         }
 
+    # Observation and action spaces are the same for leader and follower
+    act_space = envs[0].action_space
+    leader_obs_space = envs[0].observation_spaces['leader']
     leader = torch.compile(ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader']), mode='reduce-overhead')  # type: ignore
-    follower = torch.compile(ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']), mode='reduce-overhead') # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
-    follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
-    models = {'leader': leader, 'follower': follower}
-    optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
+    if leader_only:
+        models = {'leader': leader}
+        optimizers = {'leader': leader_optimizer}
+    else:
+        follower_obs_space = envs[0].observation_spaces['follower']
+        follower = torch.compile(ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']), mode='reduce-overhead') # type: ignore
+        follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
+        models = {'leader': leader, 'follower': follower}
+        optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
     if resume_iter:
         # Load checkpoint state to resume run
