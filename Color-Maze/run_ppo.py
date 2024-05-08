@@ -48,7 +48,7 @@ class ActorCritic(nn.Module):
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
+            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
@@ -56,7 +56,7 @@ class ActorCritic(nn.Module):
             nn.LeakyReLU(),
         ).to(device)
         self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(64*6*6, 192)),
+            layer_init(nn.Linear(43264, 192)),
             nn.Tanh(),
             layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
