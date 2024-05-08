@@ -135,7 +135,6 @@ def step(
         seeds: list[int],
         target_kl: float | None,
         sampling_temperature: float = 1.0,
-        share_observation_tensors: bool = True
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -159,13 +158,7 @@ def step(
     action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
     assert len(action_space_shapes) == len(models)
 
-    if share_observation_tensors:
-        assert all(shape == list(observation_space_shapes.values())[0] for shape in observation_space_shapes.values())
-        # Observations are the same, so we can share the tensors to save memory
-        observations = torch.zeros((num_steps, len(envs)) + list(observation_space_shapes.values())[0]).to(DEVICE)  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
-        all_observations = {agent: observations for agent in models}
-    else:
-        all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
+    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
 
     all_goal_info = {
        agent: torch.zeros((num_steps, len(envs)) + goal_info_shapes[agent]).to(models[agent].device)
@@ -192,16 +185,11 @@ def step(
     # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
     # breakpoint()
 
-    if share_observation_tensors:
-        next_observation = np.array([list(obs_dict.values())[0]["observation"] for obs_dict in next_observation_dicts])
-        next_observation = torch.tensor(next_observation).to(DEVICE)
-        next_observations = {agent: next_observation for agent in models}
-    else:
-        next_observations = {
-            agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
-            for agent in models
-        }
-        next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
+    next_observations = {
+        agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
+        for agent in models
+    }
+    next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
     next_goal_info = {
         agent: np.array([obs_dict[agent]["goal_info"] for obs_dict in next_observation_dicts])
         for agent in models
@@ -514,7 +502,6 @@ def train(
             seeds=env_seeds,
             target_kl=target_kl,
             sampling_temperature=sampling_temperature,
-            share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
 
         metrics = {}
