@@ -524,6 +524,7 @@ def train(
                 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
                 'individual_reward': results.individual_rewards.sum(axis=0).mean(),
+                'positive_individual_reward': (results.individual_rewards > 0).sum(axis=0).mean(),
                 'shared_reward': results.shared_rewards.sum(axis=0).mean(),
                 'action_entropy': results.action_entropies.mean()
             }
