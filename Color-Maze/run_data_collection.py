@@ -33,7 +33,6 @@ class StepData:
     dones: torch.Tensor
     action_log_probs: torch.Tensor
     values: torch.Tensor
-    loss: float
     explained_var: float
     goal_info: torch.Tensor
 
@@ -123,7 +122,7 @@ class ActorCritic(nn.Module):
 def step(
         envs: Sequence[ParallelEnv],
         models: Mapping[str, ActorCritic],
-        optimizers: Mapping[str, optim.Optimizer],
+        # optimizers: Mapping[str, optim.Optimizer],
         num_steps: int,
         batch_size: int,
         minibatch_size: int,
@@ -376,8 +375,8 @@ def collect_data(
     # if resume_iter:
     #     assert resume_wandb_id is not None, "Must provide W&B ID to resume from checkpoint"
 
-    if log_to_wandb:
-        wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
+    # if log_to_wandb:
+    #     wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
 
     torch.manual_seed(seed)
 
@@ -408,10 +407,10 @@ def collect_data(
 
     leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
     follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
-    leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
-    follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
+    # leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
+    # follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
     models = {'leader': leader, 'follower': follower}
-    optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
+    # optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
     if resume_iter:
         # Load checkpoint state to resume run
@@ -420,7 +419,7 @@ def collect_data(
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
             optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
             model.load_state_dict(torch.load(model_path))
-            optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
+            # optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
     else:
         assert False, "Data collection must use a checkpoint to resume from, specify with resume_iter."
     # elif warmstart_leader_path:
@@ -438,7 +437,7 @@ def collect_data(
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
-            optimizers=optimizers,
+            # optimizers=optimizers,
             num_steps=num_steps_per_rollout,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
@@ -449,7 +448,7 @@ def collect_data(
         metrics = {}
         for agent, results in step_results.items(): # type: ignore
             metrics[agent] = {
-                'loss': results.loss,
+                # 'loss': results.loss,
                 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
                 'individual_reward': results.individual_rewards.sum(axis=0).mean(),
@@ -461,32 +460,19 @@ def collect_data(
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
 
-        if save_data_iters and iteration % save_data_iters == 0:
-            observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
-            goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-                # (env, minibatch = bsz / num minibsz, goal_dim)
-            for i in range(observation_states.size(0)):
-                trajectory = observation_states[i].numpy()
-                goal_infos_i = goal_infos[i].numpy()
-                os.makedirs(f'data_collection/{run_name}', exist_ok=True)
-                np.save(f"data_collection/{run_name}/data_collection_{iteration=}_env={i}.npy", trajectory)
-                np.save(f"data_collection/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos_i)
+        # Save data collection every iteration
+        observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
+        goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
+            # (env, minibatch = bsz / num minibsz, goal_dim)
+        for i in range(observation_states.size(0)):
+            trajectory = observation_states[i].numpy()
+            goal_infos_i = goal_infos[i].numpy()
+            os.makedirs(f'data_collection/{run_name}', exist_ok=True)
+            np.save(f"data_collection/{run_name}/data_collection_{iteration=}_env={i}.npy", trajectory)
+            np.save(f"data_collection/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos_i)
 
         if debug_print:
             print(f"iter {iteration}: {metrics}")
-
-        if checkpoint_iters and iteration % checkpoint_iters == 0:
-            print(f"Saving models at epoch {iteration}")
-            for agent_name, model in models.items():
-                torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
-                optimizer = optimizers[agent_name]
-                torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
-
-    for agent_name, model in models.items():
-        torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
-        optimizer = optimizers[agent_name] # TODO This should be commented for data collection?
-        torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
-
 
 if __name__ == '__main__':
     Fire(collect_data)
