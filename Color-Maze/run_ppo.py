@@ -468,8 +468,8 @@ def train(
             'follower': DEVICE
         }
 
-    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
-    follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
+    leader = torch.compile(ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader']), mode='reduce-overhead')  # type: ignore
+    follower = torch.compile(ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']), mode='reduce-overhead') # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
     models = {'leader': leader, 'follower': follower}
