@@ -319,8 +319,8 @@ class ColorMaze(ParallelEnv):
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        # shared_reward -= 1
-                        # individual_rewards[agent] -= 1
+                        shared_reward -= 1
+                        individual_rewards[agent] -= 1
                         self.blocks = self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break # Can't step on two non-rewarding blocks at once
 
