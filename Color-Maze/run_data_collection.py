@@ -33,7 +33,7 @@ class StepData:
     dones: torch.Tensor
     action_log_probs: torch.Tensor
     values: torch.Tensor
-    explained_var: float
+    # explained_var: float
     goal_info: torch.Tensor
 
 
@@ -53,7 +53,7 @@ class ActorCritic(nn.Module):
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
+            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
@@ -61,10 +61,12 @@ class ActorCritic(nn.Module):
             nn.LeakyReLU(),
         ).to(device)
         self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(64*6*6 + 3, 192)),
+            layer_init(nn.Linear(43264, 192)),
+            nn.Tanh(),
+            layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
         ).to(device)
-        self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
+        # self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(self.lstm_hidden_size, 64)),
             nn.Tanh(),
@@ -91,32 +93,108 @@ class ActorCritic(nn.Module):
         features = features.flatten(start_dim=1)
 
         # Append one-hot reward encoding
-        features = torch.cat((features, goal_info), dim=1)
+        # features = torch.cat((features, goal_info), dim=1)
         features = self.feature_linear(features)
 
-        # Pass through LSTM; add singular sequence length dimension for LSTM input
-        features = features.reshape(batch_size, 1, -1)
-        if prev_hidden_and_cell_states is not None:
-            prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-            prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-            prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-        features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
+        # # Pass through LSTM; add singular sequence length dimension for LSTM input
+        # features = features.reshape(batch_size, 1, -1)
+        # if prev_hidden_and_cell_states is not None:
+            # prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
+            # prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
+            # prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
+        # features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
 
         # Grab all batches and remove sequence length dimension
         # features: (batch_size, 1, feature_size)
         # last_timestep_features: (batch_size, feature_size)
-        last_timestep_features = features[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
+        last_timestep_features = features  #[:, -1, ...].squeeze(1)
+        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
 
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
 
-    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
+    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None, sampling_temperature: float = 1.0):
         logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
         probs = Categorical(logits=logits)
         if action is None:
-            action = probs.sample()
+            sampling_probs = Categorical(logits=logits / sampling_temperature)
+            action = sampling_probs.sample()
         return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
+
+
+# Full network, commented out to match checkpoint
+# class ActorCritic(nn.Module):
+#     def __init__(self, observation_space, action_space, device):
+#         super().__init__()
+#         self.lstm_hidden_size = 192
+#         self.device = device
+
+#         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
+#         self.conv_network = nn.Sequential(
+#             layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
+#             nn.LeakyReLU(),
+#             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
+#             nn.LeakyReLU(),
+#             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
+#             nn.LeakyReLU(),
+#         ).to(device)
+#         self.feature_linear = nn.Sequential(
+#             layer_init(nn.Linear(64*6*6 + 3, 192)),
+#             nn.Tanh(),
+#         ).to(device)
+#         self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
+#         self.policy_network = nn.Sequential(
+#             layer_init(nn.Linear(self.lstm_hidden_size, 64)),
+#             nn.Tanh(),
+#             layer_init(nn.Linear(64, 64)),
+#             nn.Tanh(),
+#             layer_init(nn.Linear(64, action_space.n), std=0.01),
+#         ).to(device)
+#         self.value_network = nn.Sequential(
+#             layer_init(nn.Linear(192, 64)),
+#             nn.Tanh(),
+#             layer_init(nn.Linear(64, 64)),
+#             nn.Tanh(),
+#             layer_init(nn.Linear(64, 1), std=1.0),
+#         ).to(device)
+
+#     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
+#         batch_size = x.size(0)
+
+#         # Apply conv network in parallel on each sequence slice
+#         features = self.conv_network(x)
+
+#         # Flatten convolution output channels into linear input
+#         # New shape: (batch_size, flattened_size)
+#         features = features.flatten(start_dim=1)
+
+#         # Append one-hot reward encoding
+#         features = torch.cat((features, goal_info), dim=1)
+#         features = self.feature_linear(features)
+
+#         # Pass through LSTM; add singular sequence length dimension for LSTM input
+#         features = features.reshape(batch_size, 1, -1)
+#         if prev_hidden_and_cell_states is not None:
+#             prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
+#             prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
+#             prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
+#         features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
+
+#         # Grab all batches and remove sequence length dimension
+#         # features: (batch_size, 1, feature_size)
+#         # last_timestep_features: (batch_size, feature_size)
+#         last_timestep_features = features[:, -1, ...].squeeze(1)
+#         return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
+
+#     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
+#         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
+
+#     def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
+#         logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
+#         probs = Categorical(logits=logits)
+#         if action is None:
+#             action = probs.sample()
+#         return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
 
 
 def step(
@@ -248,7 +326,7 @@ def step(
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
 
-    explained_var = {}
+    # explained_var = {}
     acc_losses = {agent: 0 for agent in models}
     for agent, model in models.items():
         # bootstrap values if not done
@@ -278,68 +356,8 @@ def step(
         b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
         b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
 
-        # Optimizing the policy and value network
-        b_inds = np.arange(batch_size)
-        clipfracs = []
-        # for epoch in range(ppo_update_epochs):
-        #     np.random.shuffle(b_inds)
-        #     for start in range(0, batch_size, minibatch_size):
-        #         end = start + minibatch_size
-        #         mb_inds = b_inds[start:end]
 
-        #         _, newlogprob, entropy, newvalue, _ = model.get_action_and_value(
-        #             b_obs[mb_inds], 
-        #             goal_info=b_goal_info.long()[mb_inds], 
-        #             action=b_actions.long()[mb_inds],
-        #             prev_hidden_and_cell_states=(b_lstm_hidden_states[mb_inds], b_lstm_cell_states[mb_inds]),
-        #         )
-        #         logratio = newlogprob - b_logprobs[mb_inds]
-        #         ratio = logratio.exp()
-
-        #         with torch.no_grad():
-        #             # calculate approx_kl http://joschu.net/blog/kl-approx.html
-        #             approx_kl = ((ratio - 1) - logratio).mean()
-        #             clipfracs += [((ratio - 1.0).abs() > clip_param).float().mean().item()]
-
-        #         mb_advantages = b_advantages[mb_inds]
-        #         if norm_advantage:
-        #             mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-
-        #         # Policy loss
-        #         pg_loss1 = -mb_advantages * ratio
-        #         pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_param, 1 + clip_param)
-        #         pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-
-        #         # Value loss
-        #         newvalue = newvalue.view(-1)
-        #         if clip_vloss:
-        #             v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-        #             v_clipped = b_values[mb_inds] + torch.clamp(
-        #                 newvalue - b_values[mb_inds],
-        #                 -clip_param,
-        #                 clip_param,
-        #             )
-        #             v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-        #             v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-        #             v_loss = 0.5 * v_loss_max.mean()
-        #         else:
-        #             v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
-
-        #         entropy_loss = entropy.mean()
-        #         loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef
-        #         acc_losses[agent] += loss.detach().cpu().item()
-
-        #         optimizers[agent].zero_grad()
-        #         loss.backward()
-        #         nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-        #         optimizers[agent].step()
-
-        #     if target_kl is not None and approx_kl > target_kl:
-        #         break
-
-        # y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
-        # var_y = np.var(y_true)
-        # explained_var[agent] = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+    # breakpoint()
 
     step_result = {
         agent: StepData(
@@ -353,7 +371,7 @@ def step(
             action_log_probs=all_logprobs[agent].cpu(),
             values=all_values[agent].cpu(),
             # loss=acc_losses[agent] / ppo_update_epochs,
-            explained_var=explained_var[agent],
+            # explained_var=explained_var[agent],
         )
         for agent in models
     }
@@ -379,8 +397,8 @@ def collect_data(
     # if log_to_wandb:
     #     wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
 
-    columns = ['Run Name', 'Leader Avg Reward per Timestep', 'Follower Avg Reward per Timestep', 'Leader Explained Var', 'Follower Explained Var', 'Num Goals Switched', 'Timesteps']
-    run_table = wandb.Table(columns=columns)
+    # columns = ['Run Name', 'Leader Avg Reward per Timestep', 'Follower Avg Reward per Timestep', 'Leader Explained Var', 'Follower Explained Var', 'Num Goals Switched', 'Timesteps']
+    # run_table = wandb.Table(columns=columns)
 
     torch.manual_seed(seed)
 
@@ -421,9 +439,7 @@ def collect_data(
         print(f"Resuming from iteration {resume_iter}")
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
-            # optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
             model.load_state_dict(torch.load(model_path))
-            # optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
     else:
         assert False, "Data collection must use a checkpoint to resume from, specify with resume_iter."
     # elif warmstart_leader_path:
@@ -435,8 +451,8 @@ def collect_data(
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
-        if resume_iter and iteration <= resume_iter:
-            continue
+        # if resume_iter and iteration <= resume_iter:
+        #     continue # AR commented this out, because data collection should run for full num_iterations
 
         step_results, num_goals_switched = step(
             envs=envs,
@@ -453,7 +469,7 @@ def collect_data(
         for agent, results in step_results.items(): # type: ignore
             metrics[agent] = {
                 # 'loss': results.loss,
-                'explained_var': results.explained_var,
+                # 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
                 'individual_reward': results.individual_rewards.sum(axis=0).mean(),
                 'shared_reward': results.shared_rewards.sum(axis=0).mean()  
@@ -469,6 +485,7 @@ def collect_data(
         goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
             # (env, minibatch = bsz / num minibsz, goal_dim)
         for i in range(observation_states.size(0)):
+            # breakpoint()
             trajectory = observation_states[i].numpy()
             goal_infos_i = goal_infos[i].numpy()
             os.makedirs(f'data_collection/{run_name}', exist_ok=True)
@@ -478,7 +495,7 @@ def collect_data(
         if debug_print:
             print(f"iter {iteration}: {metrics}")
 
-    wandb.log({"Run Table": run_table})
+    # wandb.log({"Run Table": run_table})
 
 if __name__ == '__main__':
     Fire(collect_data)
