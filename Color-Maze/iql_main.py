@@ -64,6 +64,18 @@ def get_env_and_dataset(log, env_name, max_episode_steps):
 
     our_env = ColorMaze() # TODO check init params, set seed here instead of in main()?
     our_dataset = our_env.get_qlearnng_dataset()
+    print('\t Max episode steps:', env._max_episode_steps)
+    print('\t',our_dataset['observations'].shape, our_dataset['actions'].shape)
+    assert 'observations' in our_dataset, 'Observations not in dataset'
+    assert 'actions' in our_dataset, 'Actions not in dataset'
+    assert 'rewards' in our_dataset, 'Rewards not in dataset'
+    assert 'terminals' in our_dataset, 'Terminals not in dataset'
+    N = our_dataset['observations'].shape[0]
+    print('\t %d samples' % N)
+    assert our_dataset['actions'].shape[0] == N, 'Action number does not match (%d vs %d)' % (our_dataset['actions'].shape[0], N)
+    assert our_dataset['rewards'].shape[0] == N, 'Reward number does not match (%d vs %d)' % (our_dataset['rewards'].shape[0], N)
+    assert our_dataset['terminals'].shape[0] == N, 'Terminals number does not match (%d vs %d)' % (our_dataset['terminals'].shape[0], N)
+
 
     # TODO replace with our env. env.get_dataset() -> observations, actions, rewards, terminals, timeouts, infos.
     # .qlearning_dataset() also returns a next_observations
