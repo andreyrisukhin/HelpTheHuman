@@ -60,8 +60,8 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
         )
         self.feature_linear = nn.Sequential(
-            nn.Tanh(),
             layer_init(nn.Linear(192 + 3, 192)),
+            nn.Tanh(),
             layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
         ).to(device)
