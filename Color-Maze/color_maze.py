@@ -72,7 +72,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, reward_shaping_fns: list[Callable]=[]):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, reward_shaping_fns: list[Callable]=[]):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -104,6 +104,7 @@ class ColorMaze(ParallelEnv):
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.block_density = block_density
         
         # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + 2  # len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
@@ -238,8 +239,9 @@ class ColorMaze(ParallelEnv):
 
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
 
-        # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
-        for _ in range(16):
+        # Randomly place X% blocks (in a 32x32, and 10%, 34 blocks of each color)
+        n_blocks_each_color = int((xBoundary * yBoundary * self.block_density) // NUM_COLORS)
+        for _ in range(n_blocks_each_color):
             self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
