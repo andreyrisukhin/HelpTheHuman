@@ -55,9 +55,13 @@ class ActorCritic(nn.Module):
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
         ).to(device)
-        self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(43264 + 3, 192)),
+        self.projection_linear = nn.Sequential(
+            layer_init(nn.Linear(43264, 192)).to(device),
             nn.Tanh(),
+        )
+        self.feature_linear = nn.Sequential(
+            nn.Tanh(),
+            layer_init(nn.Linear(192 + 3, 192)),
             layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
         ).to(device)
@@ -86,6 +90,7 @@ class ActorCritic(nn.Module):
         # Flatten convolution output channels into linear input
         # New shape: (batch_size, flattened_size)
         features = features.flatten(start_dim=1)
+        features = self.projection_linear(features)
 
         # Append one-hot reward encoding
         features = torch.cat((features, goal_info), dim=1)
