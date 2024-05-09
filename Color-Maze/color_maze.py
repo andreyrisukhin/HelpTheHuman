@@ -164,6 +164,7 @@ class ColorMaze(ParallelEnv):
         self.reward_shaping_fns = reward_shaping_fns
 
     # def get_qlearnng_dataset(self):
+<<<<<<< HEAD
         # """
         # Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
         # """
@@ -185,6 +186,29 @@ class ColorMaze(ParallelEnv):
         # }
 
         # return dataset
+=======
+    #     """
+    #     Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
+    #     """
+    #     dataset = { # TODO fix this, replace with actual self . blocks
+    #         # "observations": np.zeros((1, xBoundary, yBoundary)),
+    #         # "actions": np.zeros((1, NUM_MOVES)),
+    #         # "rewards": np.zeros(1),
+    #         # "terminals": np.zeros(1),
+    #         # "timeouts": np.zeros(1),
+    #         # "infos": np.zeros(1),
+    #         # "next_observations": np.zeros((1, xBoundary, yBoundary))
+    #         "observations": self.observation_spaces,
+    #         "actions": self.action_space,
+    #         "rewards": self.,
+    #         "terminals": np.zeros(1),
+    #         "timeouts": np.zeros(1),
+    #         "infos": np.zeros(1),
+    #         "next_observations": np.zeros((1, xBoundary, yBoundary))
+    #     }
+
+    #     return dataset
+>>>>>>> 1627fc2 (pulling)
 
     def _maybe_randomize_goal_block(self):
         if self.rng.random() < self.prob_block_switch:

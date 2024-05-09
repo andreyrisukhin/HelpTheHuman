@@ -359,6 +359,7 @@ def step(
     }
     return step_result, num_goals_switched
 
+# python run_data_collection.py --run_name hinf_ir_r128_envs16_nolstm_noswitch_nogoalinfo_convstride1_seed0 --resume_iter 5000 --log_to_wandb False
 def collect_data(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
@@ -377,6 +378,9 @@ def collect_data(
 
     # if log_to_wandb:
     #     wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
+
+    columns = ['Run Name', 'Leader Avg Reward per Timestep', 'Follower Avg Reward per Timestep', 'Leader Explained Var', 'Follower Explained Var', 'Num Goals Switched', 'Timesteps']
+    run_table = wandb.Table(columns=columns)
 
     torch.manual_seed(seed)
 
@@ -417,7 +421,7 @@ def collect_data(
         print(f"Resuming from iteration {resume_iter}")
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
-            optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
+            # optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
             model.load_state_dict(torch.load(model_path))
             # optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
     else:
@@ -473,6 +477,8 @@ def collect_data(
 
         if debug_print:
             print(f"iter {iteration}: {metrics}")
+
+    wandb.log({"Run Table": run_table})
 
 if __name__ == '__main__':
     Fire(collect_data)
