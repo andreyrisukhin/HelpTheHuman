@@ -139,6 +139,7 @@ def step(
         max_grad_norm: float,
         seeds: list[int],
         target_kl: float | None,
+        block_penalty: float,
         sampling_temperature: float = 1.0,
 ) -> Tuple[dict[str, StepData], int]:
     """
@@ -182,7 +183,7 @@ def step(
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
 
@@ -400,6 +401,8 @@ def train(
         warmstart_leader_path: str | None = None,
         # Env params
         block_density: float = 0.05,
+        no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
+        full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
         # PPO params
         total_timesteps: int = 500000,
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -489,12 +492,23 @@ def train(
         optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
         optimizers['leader'].load_state_dict(torch.load(optimizer_path))
 
+    assert no_block_penalty_until <= full_block_penalty_at
+    if full_block_penalty_at == 0:
+        penalty_inc_per_step = 0
+        get_block_penalty = lambda step: 1
+    else:
+        penalty_inc_per_step = 1 / (full_block_penalty_at - no_block_penalty_until)
+        get_block_penalty = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
+
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
+    print(f'No block penalty until {no_block_penalty_until}, full -1 penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
+
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
         if resume_iter and iteration <= resume_iter:
             continue
 
+        block_penalty = get_block_penalty(iteration * batch_size)
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
@@ -513,6 +527,7 @@ def train(
             max_grad_norm=max_grad_norm,
             seeds=env_seeds,
             target_kl=target_kl,
+            block_penalty=block_penalty,
             sampling_temperature=sampling_temperature,
         )
 
@@ -529,6 +544,7 @@ def train(
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
+        metrics['block_penalty'] = block_penalty
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)

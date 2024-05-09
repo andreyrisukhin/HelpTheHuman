@@ -87,6 +87,7 @@ class ColorMaze(ParallelEnv):
         self.goal_block = IDs.RED
         self.prob_block_switch = 2/3 * 1/32 # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
         self.goal_switched = False
+        self.block_penalty = 1
 
         # Agents
         self.leader_only = leader_only
@@ -223,6 +224,12 @@ class ColorMaze(ParallelEnv):
             self.seed = 42
         self.rng = np.random.default_rng(seed=self.seed)
 
+        if options is None:
+            options = {}
+        if "block_penalty" in options:
+            assert isinstance(options["block_penalty"], int)
+            self.block_penalty = abs(options["block_penalty"])
+
         self.agents = copy(self.possible_agents)
         self.timestep = 0
         self.goal_switched = False
@@ -352,8 +359,8 @@ class ColorMaze(ParallelEnv):
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        shared_reward -= 1
-                        individual_rewards[agent] -= 1
+                        shared_reward -= self.block_penalty
+                        individual_rewards[agent] -= self.block_penalty
                         self.blocks = self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break # Can't step on two non-rewarding blocks at once
 
