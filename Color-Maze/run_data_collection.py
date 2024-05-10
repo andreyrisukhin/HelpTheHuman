@@ -23,6 +23,8 @@ from pettingzoo import ParallelEnv
 from color_maze import ColorMaze
 from color_maze import ColorMazeRewards
 
+import h5py
+
 @dataclass
 class StepData:
     observations: torch.Tensor
@@ -36,6 +38,36 @@ class StepData:
     # explained_var: float
     goal_info: torch.Tensor
 
+def reset_data():
+    return {
+        'observations': [],
+        'actions': [],
+        'terminals': [],
+        'rewards': [],
+        'infos/goal': [],
+        'infos/qpos': [], # Env-specific to the example
+        'infos/qvel': [], # Env-specific to the example
+    }
+
+def append_data(data, s, a, tgt, done:bool, env_data):
+    data['observations'].append(s)
+    data['actions'].append(a)
+    data['terminals'].append(done)
+    data['rewards'].append(0.0)
+    data['infos/goal'].append(tgt)
+    data['infos/qpos'].append(env_data.qpos.ravel().copy())
+    data['infos/qvel'].append(env_data['qvel'])
+
+def npify(data):
+    for key in data:
+        if key == 'terminal':
+            dtype = np.bool_
+        else:
+            dtype = np.float32
+
+        data[key] = np.array(data[key], dtype=dtype)
+    return data
+
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -43,7 +75,6 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
-
 
 class ActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, device):
@@ -254,12 +285,6 @@ def step(
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
     next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
-    # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
-    # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
-
-
-    # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
-    # breakpoint()
 
     if share_observation_tensors:
         next_observation = np.array([list(obs_dict.values())[0]["observation"] for obs_dict in next_observation_dicts])
@@ -356,9 +381,6 @@ def step(
         b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
         b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
 
-
-    # breakpoint()
-
     step_result = {
         agent: StepData(
             observations=all_observations[agent].cpu(),
@@ -381,6 +403,7 @@ def step(
 def collect_data(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
+        log_file_name: str | None = None,
         # PPO params
         total_timesteps: int = 10**6,
         num_envs: int = 4,
@@ -429,10 +452,7 @@ def collect_data(
 
     leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
     follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
-    # leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
-    # follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
     models = {'leader': leader, 'follower': follower}
-    # optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
     if resume_iter:
         # Load checkpoint state to resume run
@@ -442,22 +462,16 @@ def collect_data(
             model.load_state_dict(torch.load(model_path))
     else:
         assert False, "Data collection must use a checkpoint to resume from, specify with resume_iter."
-    # elif warmstart_leader_path:
-    #     print(f"Warmstarting leader model from {warmstart_leader_path}")
-    #     leader.load_state_dict(torch.load(warmstart_leader_path))
-    #     optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
-    #     optimizers['leader'].load_state_dict(torch.load(optimizer_path))
 
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
 
-    for iteration in tqdm(range(num_iterations), total=num_iterations):
-        # if resume_iter and iteration <= resume_iter:
-        #     continue # AR commented this out, because data collection should run for full num_iterations
+    leader_data = reset_data()
+    follower_data = reset_data()
 
+    for iteration in tqdm(range(num_iterations), total=num_iterations):
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
-            # optimizers=optimizers,
             num_steps=num_steps_per_rollout,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
@@ -495,7 +509,23 @@ def collect_data(
         if debug_print:
             print(f"iter {iteration}: {metrics}")
 
+
+        # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
+        # TODO does it make sense to split leader from follower data?
+        append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, envs[0])
+        append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, envs[0])
+
     # wandb.log({"Run Table": run_table})
+
+    if not log_file_name: log_file_name = f"{run_name}_{resume_iter}"
+    dataset_leader = h5py.File(log_file_name + "_leader", 'w')
+    dataset_follower = h5py.File(log_file_name + "_follower", 'w')
+    npify(leader_data)
+    npify(follower_data)
+    for key in leader_data:
+        dataset_leader.create_dataset(key, data=leader_data[key], compression='gzip')
+        dataset_follower.create_dataset(key, data=follower_data[key], compression='gzip')
+
 
 if __name__ == '__main__':
     Fire(collect_data)
