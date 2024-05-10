@@ -370,7 +370,6 @@ def step(
 
                 # Auxiliary goalinfo prediction loss
                 # TODO if removing follower goalinfo, do this only for the leader
-                breakpoint()
                 ce_loss_func = torch.nn.CrossEntropyLoss()
                 goalinfo_loss = ce_loss_func(goalinfo_logits, b_goal_info.long()[mb_inds].argmax(dim=-1).view(-1))
 
