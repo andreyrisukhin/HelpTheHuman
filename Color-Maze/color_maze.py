@@ -227,7 +227,7 @@ class ColorMaze(ParallelEnv):
         if options is None:
             options = {}
         if "block_penalty" in options:
-            assert isinstance(options["block_penalty"], int)
+            assert isinstance(options["block_penalty"], float)
             self.block_penalty = abs(options["block_penalty"])
 
         self.agents = copy(self.possible_agents)
