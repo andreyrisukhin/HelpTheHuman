@@ -45,8 +45,8 @@ def reset_data():
         'terminals': [],
         'rewards': [],
         'infos/goal': [],
-        'infos/qpos': [], # Env-specific to the example
-        'infos/qvel': [], # Env-specific to the example
+        # 'infos/qpos': [], # Env-specific to the example
+        # 'infos/qvel': [], # Env-specific to the example # TODO for ColorMaze, no need to store extra
     }
 
 def append_data(data, s, a, tgt, done:bool, env_data):
@@ -55,10 +55,16 @@ def append_data(data, s, a, tgt, done:bool, env_data):
     data['terminals'].append(done)
     data['rewards'].append(0.0)
     data['infos/goal'].append(tgt)
-    data['infos/qpos'].append(env_data.qpos.ravel().copy())
-    data['infos/qvel'].append(env_data['qvel'])
+    # data['infos/qpos'].append(env_data.qpos.ravel().copy())
+    # data['infos/qvel'].append(env_data['qvel'])
+    
+    if 1 in done:
+        breakpoint()
 
 def npify(data):
+    # TODO add env segmentation
+
+
     for key in data:
         if key == 'terminal':
             dtype = np.bool_
@@ -66,6 +72,15 @@ def npify(data):
             dtype = np.float32
 
         data[key] = np.array(data[key], dtype=dtype)
+
+
+    # reshape
+    # TODO discard unfinished envs. Find the last 'done' in an environment, take only up to that and concat this data to the final output.
+
+    # Get index of the last true in done, for each environment
+    # last_dones_idxs = np.
+
+
     return data
 
 
@@ -479,6 +494,18 @@ def collect_data(
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
 
+        # TODO consider collecting data from only one env at a time. Multiple has following challenges:
+        """ s,a -> e -> s',d,r
+        e1   [t1][  t2  ][ t3 ]
+        e2   [ t4 ][t5]
+        e3
+        e4
+        ^ different environments may have different length (AR ours do not! But still write general done-based split code)
+
+        """
+
+
+
         metrics = {}
         for agent, results in step_results.items(): # type: ignore
             metrics[agent] = {
@@ -499,7 +526,6 @@ def collect_data(
         goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
             # (env, minibatch = bsz / num minibsz, goal_dim)
         for i in range(observation_states.size(0)):
-            # breakpoint()
             trajectory = observation_states[i].numpy()
             goal_infos_i = goal_infos[i].numpy()
             os.makedirs(f'data_collection/{run_name}', exist_ok=True)
@@ -509,11 +535,12 @@ def collect_data(
         if debug_print:
             print(f"iter {iteration}: {metrics}")
 
-
         # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
-        # TODO does it make sense to split leader from follower data?
+        # It makes sense to split leader from follower data, because their actions are distinct. 
         append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, envs[0])
         append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, envs[0])
+
+        # Especially how to handle the dones?
 
     # wandb.log({"Run Table": run_table})
 
@@ -521,7 +548,7 @@ def collect_data(
     dataset_leader = h5py.File(log_file_name + "_leader", 'w')
     dataset_follower = h5py.File(log_file_name + "_follower", 'w')
     npify(leader_data)
-    npify(follower_data)
+    npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
     for key in leader_data:
         dataset_leader.create_dataset(key, data=leader_data[key], compression='gzip')
         dataset_follower.create_dataset(key, data=follower_data[key], compression='gzip')
