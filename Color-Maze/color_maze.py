@@ -164,7 +164,7 @@ class ColorMaze(ParallelEnv):
 
         # return dataset
 
-    def _randomize_goal_block(self): 
+    def _maybe_randomize_goal_block(self):
         if self.rng.random() < self.prob_block_switch:
             other_colors = list(range(NUM_COLORS))
             other_colors.remove(self.goal_block.value)            
@@ -253,7 +253,7 @@ class ColorMaze(ParallelEnv):
             self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
         
-        self._randomize_goal_block()
+        self.goal_block = self.rng.choice(np.array([IDs.RED, IDs.GREEN, IDs.BLUE]))
 
         observation = self._convert_to_observation(self.blocks)
         goal_info = np.zeros(NUM_COLORS)
@@ -327,9 +327,6 @@ class ColorMaze(ParallelEnv):
             follower_action = actions["follower"]
             self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
 
-        self.goal_switched = False
-        self._randomize_goal_block()
-
         # Make action masks
         # Not used atm; would need to be adapted to allow self.leader_only if uncommented
         # leader_action_mask = np.ones(NUM_MOVES)
@@ -397,6 +394,9 @@ class ColorMaze(ParallelEnv):
         if ('leader' not in terminateds.keys()):
             breakpoint()
 
+        # Maybe update goal block
+        self.goal_switched = False
+        self._maybe_randomize_goal_block()
 
         observation = self._convert_to_observation(self.blocks)
         goal_info = np.zeros(NUM_COLORS)
