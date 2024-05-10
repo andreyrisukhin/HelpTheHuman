@@ -80,6 +80,11 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 1), std=1.0),
         ).to(device)
+        self.auxiliary_goalinfo_network = nn.Sequential(
+            layer_init(nn.Linear(192, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 3))
+        ).to(device)
 
     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         batch_size = x.size(0)
@@ -108,18 +113,23 @@ class ActorCritic(nn.Module):
         # features: (batch_size, 1, feature_size)
         # last_timestep_features: (batch_size, feature_size)
         last_timestep_features = features  #[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
+        return (
+            self.policy_network(last_timestep_features),
+            self.value_network(last_timestep_features),
+            self.auxiliary_goalinfo_network(last_timestep_features),
+            (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
+        )
 
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
 
     def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None, sampling_temperature: float = 1.0):
-        logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
+        logits, value, goalinfo_logits, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
         probs = Categorical(logits=logits)
         if action is None:
             sampling_probs = Categorical(logits=logits / sampling_temperature)
             action = sampling_probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
+        return action, probs.log_prob(action), probs.entropy(), value, goalinfo_logits, (hidden_states, cell_states)
 
 def step(
         envs: Sequence[ParallelEnv],
@@ -141,6 +151,7 @@ def step(
         target_kl: float | None,
         block_penalty: float,
         sampling_temperature: float = 1.0,
+        goalinfo_loss_coef: float = 0
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -217,7 +228,7 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, entropy, value, (hidden_states, cell_states) = model.get_action_and_value(
+                action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
                     next_observations[agent],
                     next_goal_info[agent],
                     prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
@@ -319,7 +330,7 @@ def step(
                 end = start + minibatch_size
                 mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue, _ = model.get_action_and_value(
+                _, newlogprob, entropy, newvalue, goalinfo_logits, _ = model.get_action_and_value(
                     b_obs[mb_inds], 
                     goal_info=b_goal_info.long()[mb_inds], 
                     action=b_actions.long()[mb_inds],
@@ -357,8 +368,14 @@ def step(
                 else:
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
+                # Auxiliary goalinfo prediction loss
+                # TODO if removing follower goalinfo, do this only for the leader
+                breakpoint()
+                ce_loss_func = torch.nn.CrossEntropyLoss()
+                goalinfo_loss = ce_loss_func(goalinfo_logits, b_goal_info.long()[mb_inds].argmax(dim=-1).view(-1))
+
                 entropy_loss = entropy.mean()
-                loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef
+                loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef + goalinfo_loss * goalinfo_loss_coef
                 acc_losses[agent] += loss.detach().cpu().item()
 
                 optimizers[agent].zero_grad()
@@ -420,6 +437,7 @@ def train(
         max_grad_norm: float = 0.5,  # max gradnorm for gradient clipping
         target_kl: float | None = None,  # target KL divergence threshold
         sampling_temperature: float = 1.0,
+        goalinfo_loss_coef: float = 0.0,
         # Config params
         save_data_iters: int = 100, # Save data every 100 iterations from num_iterations, calculated below
         checkpoint_iters: int = 0,
@@ -529,6 +547,7 @@ def train(
             target_kl=target_kl,
             block_penalty=block_penalty,
             sampling_temperature=sampling_temperature,
+            goalinfo_loss_coef=goalinfo_loss_coef,
         )
 
         metrics = {}
