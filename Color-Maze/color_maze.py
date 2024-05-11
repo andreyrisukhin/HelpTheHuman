@@ -16,6 +16,7 @@ from typing import Callable, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
 from copy import copy
+import h5py
 
 class Moves(Enum):
     UP = 0
@@ -125,28 +126,35 @@ class ColorMaze(ParallelEnv):
         # Reward shaping
         self.reward_shaping_fns = reward_shaping_fns
 
-    # def get_qlearnng_dataset(self):
-    #     """
-    #     Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
-    #     """
-    #     dataset = { # TODO fix this, replace with actual self . blocks
-    #         # "observations": np.zeros((1, xBoundary, yBoundary)),
-    #         # "actions": np.zeros((1, NUM_MOVES)),
-    #         # "rewards": np.zeros(1),
-    #         # "terminals": np.zeros(1),
-    #         # "timeouts": np.zeros(1),
-    #         # "infos": np.zeros(1),
-    #         # "next_observations": np.zeros((1, xBoundary, yBoundary))
-    #         "observations": self.observation_spaces,
-    #         "actions": self.action_space,
-    #         "rewards": self.,
-    #         "terminals": np.zeros(1),
-    #         "timeouts": np.zeros(1),
-    #         "infos": np.zeros(1),
-    #         "next_observations": np.zeros((1, xBoundary, yBoundary))
-    #     }
+    def load_q_learning_dataset(self, path: str):
+        """
+        Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
+        """
+        file = h5py.File(path, 'r')
 
-    #     return dataset
+        # TODO: Change 'dataset_name' to actual dataset name from path extraction?
+        rewards = file['dataset_name'].attrs['rewards']
+        observations = file['dataset_name'].attrs['observations']
+        actions = file['dataset_name'].attrs['actions']
+        terminals = file['dataset_name'].attrs['terminals']
+        infos = file['dataset_name'].attrs['infos/goal']
+
+        # Close the file when done
+        file.close()
+
+        # for agent in agents, 
+        dummy_data = {"leader": False, "follower": False}
+        
+        dataset = { 
+            "observations": observations,
+            "actions": actions,
+            "rewards": rewards,
+            "terminals": terminals,
+            "timeouts": dummy_data,
+            "infos": infos,
+            "next_observations": dummy_data
+        }
+        return dataset
 
     def _randomize_goal_block(self): 
         if self.rng.random() < self.prob_block_switch:
