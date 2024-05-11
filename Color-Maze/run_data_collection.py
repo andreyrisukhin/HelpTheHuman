@@ -74,13 +74,16 @@ def npify(data):
         data[key] = np.array(data[key], dtype=dtype)
 
 
-    # reshape
+    # reshape/flatten the data into (#envs x dim) x ... 
+    
+
     # TODO discard unfinished envs. Find the last 'done' in an environment, take only up to that and concat this data to the final output.
+    # an unfinished env will have a done=False at the end of the data.
+    # This is a bit tricky because the data is stored in a list of lists, so we need to find the last done in each env and then slice the data accordingly.
 
     # Get index of the last true in done, for each environment
-    # last_dones_idxs = np.
-
-
+    last_dones_idxs = [np.where(data['terminals'][i])[0][-1] for i in range(len(data['terminals']))]
+    last_dones_idxs = np.array(last_dones_idxs)
     return data
 
 
@@ -367,8 +370,8 @@ def step(
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
 
     # explained_var = {}
-    acc_losses = {agent: 0 for agent in models}
-    for agent, model in models.items():
+    # acc_losses = {agent: 0 for agent in models}
+    # for agent, model in models.items():
         # bootstrap values if not done
         # with torch.no_grad():
         #     next_values = model.get_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][-1], lstm_cell_states[agent][-1])).reshape(1, -1)
@@ -386,15 +389,15 @@ def step(
         #     returns = advantages + all_values[agent]
 
         # flatten the batch
-        b_obs = all_observations[agent].reshape((-1,) + observation_space_shapes[agent])  # (-1, 5, xBoundary, yBoundary)
-        b_logprobs = all_logprobs[agent].reshape(-1)
-        b_goal_info = all_goal_info[agent].reshape((-1,) + goal_info_shapes[agent])
-        b_actions = all_actions[agent].reshape((-1,) + action_space_shapes[agent])
+        # b_obs = all_observations[agent].reshape((-1,) + observation_space_shapes[agent])  # (-1, 5, xBoundary, yBoundary)
+        # b_logprobs = all_logprobs[agent].reshape(-1)
+        # b_goal_info = all_goal_info[agent].reshape((-1,) + goal_info_shapes[agent])
+        # b_actions = all_actions[agent].reshape((-1,) + action_space_shapes[agent])
         # b_advantages = advantages.reshape(-1)
         # b_returns = returns.reshape(-1)
-        b_values = all_values[agent].reshape(-1)
-        b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
-        b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
+        # b_values = all_values[agent].reshape(-1)
+        # b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
+        # b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
 
     step_result = {
         agent: StepData(

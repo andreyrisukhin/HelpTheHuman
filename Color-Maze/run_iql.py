@@ -1,13 +1,3 @@
-'''
-This is the single file for running IQL, learning from a folder of observations.
-
-https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/dqn.py
-
-The following one just seems exactly like what we need
-https://github.com/gwthomas/IQL-PyTorch/blob/main/main.py <- this file is forked by run_iql.py
-https://github.com/gwthomas/IQL-PyTorch/blob/main/src/iql.py
-'''
-
 from pathlib import Path
 
 import gym
@@ -16,31 +6,100 @@ import numpy as np
 import torch
 from tqdm import trange
 
-from iql_gwthomas.src.iql import ImplicitQLearning
-from iql_gwthomas.src.policy import GaussianPolicy, DeterministicPolicy
-from iql_gwthomas.src.value_functions import TwinQ, ValueFunction
-from iql_gwthomas.src.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
+from src_iql_gwthomas.iql import ImplicitQLearning
+from src_iql_gwthomas.policy import GaussianPolicy, DeterministicPolicy
+from src_iql_gwthomas.value_functions import TwinQ, ValueFunction
+from src_iql_gwthomas.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
 
 from color_maze import ColorMaze
+
+"""
+This is the single file for running IQL.
+
+Notes about IQL
+
+QL is optimistic in face of uncertainty: taking max over noise is overoptimistic 
+* Q_policy () = ..<s,a>. + discount * argmax_a' (Q_target(a',s))
+* If there are four distributional measurements, and I've observed a3 more than a4, a4 will be noisier -> could be greater than a3
+* This is because we are estimating value | observed values. Observing action a changes the distribution of Expected[value_a]
+
+To compensate, offline RL is pessimistic: Q_target updates slower than Q_policy, 100-1000x, and updates to approach Q_policy.
+This works empirically, and 10yrs later due to avoiding rank collapse (1000x slower means Qtarget and Qpolicy are different enough)
+https://arxiv.org/abs/2010.14498 
+
+Replay buffer should store tuples (s, a, r, s') for IQL. // no discount or argmax around Q(a',s) with buffer (s, a, r, s', a') for CQL.
+
+Use IQL
+
+Andrey: confused what this means, use a frozen model to collect data? And use that "expert" data for q-learning?
+
+"""
+
+""" Sriyash OH 5-3-2024
+ensure that the behavior we want to extract is represented in the dataset, offline RL will not do anything novel
+    can be collection or 1, but must be covered
+    Reward labels are also needed
+
+Start with 1M timesteps, this is standard (especially since we are not using img channels)
+    Use the Jax implementation, blazing fast (Natasha also mentioned)
+        do 2 things
+        1) create offline RL env the way it wants us to create. Write conv net ourselves, because Jax has code for flattened vectors. Use the encoders from https://github.com/dibyaghosh/jaxrl_m/blob/main/jaxrl_m/vision/small_encoders.py
+
+    1k timesteps, 20 min
+
+    Check website for compute access via class
+
+    dr4l stores as hdf5 file, dict of their info. Flattened vec, 1M x 32 x 32 x 5. Be careful storing terminals! Next obs in d4rl is sometimes the first obs of next env, if terminated. They store with an offset [0, -1] [1, end]
+        1M time steps: extract obs. They index [0, 999999] as obs for first. Then index [100, 1M]. The env assumes we mask out last obs anyway
+
+"""
+
+def get_env_and_dataset(seed=None, reward_shaping_fns=[]):
+    """
+    Should we instead be loading checkpoints from a frozen data collection run?
+    'Each task is associated with a fixed offline dataset, which can be obtained with the env.get_dataset() method' implies we should create a dataset from an env and fully trained policy. Does that sound right?
+    """
+    env = ColorMaze(seed, reward_shaping_fns=reward_shaping_fns)
+    dataset = env.load_q_learning_dataset()
+    print('\t Max episode steps:', env._max_episode_steps)
+    print('\t',dataset['observations'].shape, dataset['actions'].shape)
+    assert 'observations' in dataset, 'Observations not in dataset'
+    assert 'actions' in dataset, 'Actions not in dataset'
+    assert 'rewards' in dataset, 'Rewards not in dataset'
+    assert 'terminals' in dataset, 'Terminals not in dataset'
+    N = dataset['observations'].shape[0]
+    print('\t %d samples' % N)
+    assert dataset['actions'].shape[0] == N, 'Action number does not match (%d vs %d)' % (dataset['actions'].shape[0], N)
+    assert dataset['rewards'].shape[0] == N, 'Reward number does not match (%d vs %d)' % (dataset['rewards'].shape[0], N)
+    assert dataset['terminals'].shape[0] == N, 'Terminals number does not match (%d vs %d)' % (dataset['terminals'].shape[0], N)
+
+    # Replay buffer (s,a,r,s') (observations, actions, rewards, next_observations)
+
+    # if any(s in env_name for s in ('halfcheetah', 'hopper', 'walker2d')):
+    #     min_ret, max_ret = return_range(dataset, max_episode_steps)
+    #     log(f'Dataset returns have range [{min_ret}, {max_ret}]')
+    #     dataset['rewards'] /= (max_ret - min_ret)
+    #     dataset['rewards'] *= max_episode_steps
+    # elif 'antmaze' in env_name:
+    #     dataset['rewards'] -= 1.
+
+    for k, v in dataset.items():
+        dataset[k] = torchify(v)
+
+    return env, dataset
+
 
 def main(args):
     torch.set_num_threads(1)
     log = Log(Path(args.log_dir)/args.env_name, vars(args))
     log(f'Log dir: {log.dir}')
 
-    env = ColorMaze() # TODO arguments to init with
-    dataset = None # TODO load dataset from folder
+    env, dataset = get_env_and_dataset(log, args.env_name, args.max_episode_steps)
     obs_dim = dataset['observations'].shape[1]
     act_dim = dataset['actions'].shape[1]   # this assume continuous actions
+    set_seed(args.seed, env=env)
 
-    # set_seed(args.seed, env=env)
-
-    # TODO understand which of these makes sense for Color maze?
-    if args.deterministic_policy:
-        policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
-    else:
-        policy = GaussianPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
-
+    policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
 
     def eval_policy():
         eval_returns = np.array([evaluate_policy(env, policy, args.max_episode_steps) \
@@ -57,7 +116,7 @@ def main(args):
         qf=TwinQ(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden),
         vf=ValueFunction(obs_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden),
         policy=policy,
-        optimizer_factory=lambda params: torch.optim.Adam(params, lr=args.learning_rate), # TODO if we are saving optimizer, load it here? Or, should this be fresh?
+        optimizer_factory=lambda params: torch.optim.Adam(params, lr=args.learning_rate),
         max_steps=args.n_steps,
         tau=args.tau,
         beta=args.beta,
@@ -94,5 +153,3 @@ if __name__ == '__main__':
     parser.add_argument('--n-eval-episodes', type=int, default=10)
     parser.add_argument('--max-episode-steps', type=int, default=1000)
     main(parser.parse_args())
-
-
