@@ -62,10 +62,10 @@ class ActorCritic(nn.Module):
         self.feature_linear = nn.Sequential(
             layer_init(nn.Linear(192 + 3, 192)),
             nn.Tanh(),
-            layer_init(nn.Linear(192, 192)),
+            layer_init(nn.Linear(192, self.lstm_hidden_size)),
             nn.Tanh(),
         ).to(device)
-        # self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
+        self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
         self.policy_network = nn.Sequential(
             layer_init(nn.Linear(self.lstm_hidden_size, 64)),
             nn.Tanh(),
@@ -101,23 +101,23 @@ class ActorCritic(nn.Module):
         features = torch.cat((features, goal_info), dim=1)
         features = self.feature_linear(features)
 
-        # # Pass through LSTM; add singular sequence length dimension for LSTM input
-        # features = features.reshape(batch_size, 1, -1)
-        # if prev_hidden_and_cell_states is not None:
-            # prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-        # features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
+        # Pass through LSTM; add singular sequence length dimension for LSTM input
+        features = features.reshape(batch_size, 1, -1)
+        if prev_hidden_and_cell_states is not None:
+            prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
+            prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
+            prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
+        features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
 
         # Grab all batches and remove sequence length dimension
         # features: (batch_size, 1, feature_size)
         # last_timestep_features: (batch_size, feature_size)
-        last_timestep_features = features  #[:, -1, ...].squeeze(1)
+        last_timestep_features = features[:, -1, ...].squeeze(1)
         return (
             self.policy_network(last_timestep_features),
             self.value_network(last_timestep_features),
             self.auxiliary_goalinfo_network(last_timestep_features),
-            (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
+            (hidden_states, cell_states)
         )
 
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
@@ -415,6 +415,7 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,
         warmstart_leader_path: str | None = None,
+        compile: bool = False,
         # Env params
         block_density: float = 0.05,
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
