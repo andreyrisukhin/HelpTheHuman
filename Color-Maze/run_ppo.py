@@ -510,6 +510,10 @@ def train(
         optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
         optimizers['leader'].load_state_dict(torch.load(optimizer_path))
 
+    if compile:
+        for name, model in models.items():
+            models[name] = torch.compile(model, mode='reduce-overhead')
+
     assert no_block_penalty_until <= full_block_penalty_at
     if full_block_penalty_at == 0:
         penalty_inc_per_step = 0
