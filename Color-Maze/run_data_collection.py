@@ -62,28 +62,37 @@ def append_data(data, s, a, tgt, done:bool, env_data):
         breakpoint()
 
 def npify(data):
+    breakpoint()
     # TODO add env segmentation
-
-
     for key in data:
-        if key == 'terminal':
+        if key == 'terminal' or key == 'terminals':
             dtype = np.bool_
         else:
             dtype = np.float32
 
         data[key] = np.array(data[key], dtype=dtype)
 
+    breakpoint()
+    """
+    data['terminals'] = (1, 128, 4)
+
+    First, concat by column to split the four envs. Then, split by terminals.
+    """
+
+    # Our goal is to reshape the data into a series where contiguous elements are timesteps in a single env.
+
 
     # reshape/flatten the data into (#envs x dim) x ... 
     
-
     # TODO discard unfinished envs. Find the last 'done' in an environment, take only up to that and concat this data to the final output.
     # an unfinished env will have a done=False at the end of the data.
     # This is a bit tricky because the data is stored in a list of lists, so we need to find the last done in each env and then slice the data accordingly.
 
-    # Get index of the last true in done, for each environment
-    last_dones_idxs = [np.where(data['terminals'][i])[0][-1] for i in range(len(data['terminals']))]
-    last_dones_idxs = np.array(last_dones_idxs)
+    # # Get index of the last true in done, for each environment
+    # last_dones_idxs = [np.where(data['terminals'][i])[0][-1] for i in range(len(data['terminals']))]
+    # last_dones_idxs = np.array(last_dones_idxs)
+
+    breakpoint()
     return data
 
 
@@ -417,7 +426,7 @@ def step(
     }
     return step_result, num_goals_switched
 
-# python run_data_collection.py --run_name hinf_ir_r128_envs16_nolstm_noswitch_nogoalinfo_convstride1_seed0 --resume_iter 5000 --log_to_wandb False
+# python run_data_collection.py --run_name hinf_ir_r128_envs16_nolstm_noswitch_nogoalinfo_convstride1_seed0 --resume_iter 5000 --log_to_wandb False --total_timesteps 512
 def collect_data(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
@@ -547,11 +556,13 @@ def collect_data(
 
     # wandb.log({"Run Table": run_table})
 
+
+    # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
     if not log_file_name: log_file_name = f"{run_name}_{resume_iter}"
-    dataset_leader = h5py.File(log_file_name + "_leader", 'w')
-    dataset_follower = h5py.File(log_file_name + "_follower", 'w')
-    npify(leader_data)
-    npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
+    dataset_leader = h5py.File(log_file_name + "_leader_testing3", 'w') # TODO figure out where files are saved, look at them.
+    dataset_follower = h5py.File(log_file_name + "_follower_testing3", 'w')
+    leader_data = npify(leader_data)
+    follower_data = npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
     for key in leader_data:
         dataset_leader.create_dataset(key, data=leader_data[key], compression='gzip')
         dataset_follower.create_dataset(key, data=follower_data[key], compression='gzip')
