@@ -21,8 +21,10 @@ def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = Non
         input("Press any key to continue:")
 
 
-def main(trajectory_filepath: str, goal_info_filepath: str):
+def main(trajectory_filepath: str, goal_info_filepath: str | None = None):
     trajectory = np.load(trajectory_filepath)
+    if goal_info_filepath is None:
+        goal_info_filepath = trajectory_filepath.replace('trajectory_', 'goal_info_')
     goal_info = np.load(goal_info_filepath)
     replay_trajectory(trajectory, goal_info)
 

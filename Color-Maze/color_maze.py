@@ -72,7 +72,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, reward_shaping_fns: list[Callable]=[]):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, reward_shaping_fns: list[Callable]=[]):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -87,35 +87,52 @@ class ColorMaze(ParallelEnv):
         self.goal_block = IDs.RED
         self.prob_block_switch = 2/3 * 1/32 # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
         self.goal_switched = False
+        self.block_penalty = 1
 
         # Agents
-        self.possible_agents:List[str] = ["leader", "follower"]
-        self.agents:List[str] = copy(self.possible_agents)
-        self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
-        self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+        self.leader_only = leader_only
+        if leader_only:
+            self.possible_agents:List[str] = ["leader"]
+            self.agents:List[str] = copy(self.possible_agents)
+            self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
+        else:
+            self.possible_agents:List[str] = ["leader", "follower"]
+            self.agents:List[str] = copy(self.possible_agents)
+            self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
+            self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+
         self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.block_density = block_density
         
         # whatever channel represents the reward block will have 1s where ever the b
-        self._n_channels = self.blocks.shape[0] + len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
+        self._n_channels = self.blocks.shape[0] + 2  # len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         self._observation_space = board_space
 
         # Spaces
         goal_block_space = MultiDiscrete([2] * NUM_COLORS)
 
-        self.observation_spaces = { # Python dict, not gym spaces Dict.
-            "leader": DictSpace({
-                "observation": board_space,
-                "goal_info": goal_block_space
-            }), 
-            "follower": DictSpace({
-                "observation": board_space,
-                "goal_info": goal_block_space
-            })
-        }
+        if leader_only:
+            self.observation_spaces = { # Python dict, not gym spaces Dict.
+                "leader": DictSpace({
+                    "observation": board_space,
+                    "goal_info": goal_block_space
+                }), 
+            }
+        else:
+            self.observation_spaces = { # Python dict, not gym spaces Dict.
+                "leader": DictSpace({
+                    "observation": board_space,
+                    "goal_info": goal_block_space
+                }), 
+                "follower": DictSpace({
+                    "observation": board_space,
+                    "goal_info": goal_block_space
+                })
+            }
 
         # Environment duration
         self.timestep = 0
@@ -124,30 +141,30 @@ class ColorMaze(ParallelEnv):
         # Reward shaping
         self.reward_shaping_fns = reward_shaping_fns
 
-    def get_qlearnng_dataset(self):
-        """
-        Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
-        """
-        dataset = { # TODO fix this, replace with actual self . blocks
-            # "observations": np.zeros((1, xBoundary, yBoundary)),
-            # "actions": np.zeros((1, NUM_MOVES)),
-            # "rewards": np.zeros(1),
+    # def get_qlearnng_dataset(self):
+        # """
+        # Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
+        # """
+        # dataset = { # TODO fix this, replace with actual self . blocks
+            # # "observations": np.zeros((1, xBoundary, yBoundary)),
+            # # "actions": np.zeros((1, NUM_MOVES)),
+            # # "rewards": np.zeros(1),
+            # # "terminals": np.zeros(1),
+            # # "timeouts": np.zeros(1),
+            # # "infos": np.zeros(1),
+            # # "next_observations": np.zeros((1, xBoundary, yBoundary))
+            # "observations": self.observation_spaces,
+            # "actions": self.action_space,
+            # "rewards": self.,
             # "terminals": np.zeros(1),
             # "timeouts": np.zeros(1),
             # "infos": np.zeros(1),
             # "next_observations": np.zeros((1, xBoundary, yBoundary))
-            "observations": self.observation_spaces,
-            "actions": self.action_space,
-            "rewards": self.,
-            "terminals": np.zeros(1),
-            "timeouts": np.zeros(1),
-            "infos": np.zeros(1),
-            "next_observations": np.zeros((1, xBoundary, yBoundary))
-        }
+        # }
 
-        return dataset
+        # return dataset
 
-    def _randomize_goal_block(self): 
+    def _maybe_randomize_goal_block(self):
         if self.rng.random() < self.prob_block_switch:
             other_colors = list(range(NUM_COLORS))
             other_colors.remove(self.goal_block.value)            
@@ -164,9 +181,11 @@ class ColorMaze(ParallelEnv):
             numpy.ndarray: The observation array.
         """
         leader_position = np.zeros((1, xBoundary, yBoundary))
-        follower_position = np.zeros((1, xBoundary, yBoundary))
         leader_position[0, self.leader.x, self.leader.y] = 1
-        follower_position[0, self.follower.x, self.follower.y] = 1
+
+        follower_position = np.zeros((1, xBoundary, yBoundary))
+        if not self.leader_only:
+            follower_position[0, self.follower.x, self.follower.y] = 1
 
         # self.blocks.shape = (3, 32, 32)
         # leader_position.shape = (1, 32, 32)
@@ -188,11 +207,14 @@ class ColorMaze(ParallelEnv):
         leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
         follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
-        assert follower_places.sum() == 1
+        # assert follower_places.sum() == 1  # removed assertion because if the env was run with leader_only, this would sum to 0
         self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
         assert self.blocks.shape == (NUM_COLORS, xBoundary, yBoundary)
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
-        self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
+        if follower_places.sum() == 1:
+            self.follower.x, self.follower.y = np.argwhere(follower_places).flatten()
+        else:
+            self.leader_only = True
 
     def reset(self, *, seed=None, options=None) -> Tuple[dict[str, dict[str, np.ndarray]], dict[str, dict[str, Any]]]:
         """Reset the environment to a starting point."""
@@ -202,6 +224,12 @@ class ColorMaze(ParallelEnv):
             self.seed = 42
         self.rng = np.random.default_rng(seed=self.seed)
 
+        if options is None:
+            options = {}
+        if "block_penalty" in options:
+            assert isinstance(options["block_penalty"], float) or isinstance(options["block_penalty"], int)
+            self.block_penalty = abs(options["block_penalty"])
+
         self.agents = copy(self.possible_agents)
         self.timestep = 0
         self.goal_switched = False
@@ -209,36 +237,46 @@ class ColorMaze(ParallelEnv):
         # Randomize initial locations
         self.leader.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
         self.leader.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
-        self.follower.x = self.leader.x
-        self.follower.y = self.leader.y
-        while (self.follower.x, self.follower.y) == (self.leader.x, self.leader.y):
-            self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
-            self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
+        if not self.leader_only:
+            self.follower.x = self.leader.x
+            self.follower.y = self.leader.y
+            while (self.follower.x, self.follower.y) == (self.leader.x, self.leader.y):
+                self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+                self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
 
-        # Randomly place 5% blocks (in a 31x31, 16 blocks of each color)
-        for _ in range(16):
+        # Randomly place X% blocks (in a 32x32, and 10%, 34 blocks of each color)
+        n_blocks_each_color = int((xBoundary * yBoundary * self.block_density) // NUM_COLORS)
+        for _ in range(n_blocks_each_color):
             self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
         
-        self._randomize_goal_block()
+        self.goal_block = self.rng.choice(np.array([IDs.RED, IDs.GREEN, IDs.BLUE]))
 
         observation = self._convert_to_observation(self.blocks)
         goal_info = np.zeros(NUM_COLORS)
         goal_info[self.goal_block.value] = 1
 
-        observations = {
-            "leader": {
-                "observation": observation,
-                "goal_info": goal_info
-            },
-            "follower": {
-                "observation": observation,
-                "goal_info": np.zeros(goal_info.shape)
+        if self.leader_only:
+            observations = {
+                "leader": {
+                    "observation": observation,
+                    "goal_info": goal_info
+                },
             }
-        }
+        else:
+            observations = {
+                "leader": {
+                    "observation": observation,
+                    "goal_info": goal_info
+                },
+                "follower": {
+                    "observation": observation,
+                    "goal_info": goal_info  # TODO make this zeros to bring back info hiding
+                }
+            }
 
         # Get info, necessary for proper parallel_to_aec conversion
         infos = {a: {"individual_reward": 0} for a in self.agents}
@@ -252,7 +290,7 @@ class ColorMaze(ParallelEnv):
         self.rng.shuffle(zero_indices)
         for x,y in zero_indices:
             if ((x == self.leader.x and y == self.leader.y) or
-                (x == self.follower.x and y == self.follower.y)):
+                (not self.leader_only and x == self.follower.x and y == self.follower.y)):
                 continue
 
             blocks[color_idx, x, y] = 1
@@ -264,9 +302,6 @@ class ColorMaze(ParallelEnv):
         """
         Takes an action for all agents in environment, and assigns rewards.
         """
-        leader_action = actions["leader"]
-        follower_action = actions["follower"]
-
         def _move(x, y, action):
             """
             Always call _move for the leader first in a given timestep. The leader is favored in collisions with follower. 
@@ -286,32 +321,34 @@ class ColorMaze(ParallelEnv):
             else:
                 return new_x, new_y
         
+        leader_action = actions["leader"]
         self.leader.x, self.leader.y = _move(self.leader.x, self.leader.y, leader_action)
-        self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
-
-        self.goal_switched = False
-        self._randomize_goal_block()
+        if not self.leader_only:
+            follower_action = actions["follower"]
+            self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
 
         # Make action masks
-        leader_action_mask = np.ones(NUM_MOVES)
-        follower_action_mask = np.ones(NUM_MOVES)
-        for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
-            if x == Boundary.x1.value:
-                action_mask[Moves.LEFT.value] = 0  # cant go left
-            if x == Boundary.x2.value:
-                action_mask[Moves.RIGHT.value] = 0  # cant go right
-            if y == Boundary.y1.value:
-                action_mask[Moves.DOWN.value] = 0  # cant go down
-            if y == Boundary.y2.value:
-                action_mask[Moves.UP.value] = 0  # cant go up
+        # Not used atm; would need to be adapted to allow self.leader_only if uncommented
+        # leader_action_mask = np.ones(NUM_MOVES)
+        # follower_action_mask = np.ones(NUM_MOVES)
+        # for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
+            # if x == Boundary.x1.value:
+                # action_mask[Moves.LEFT.value] = 0  # cant go left
+            # if x == Boundary.x2.value:
+                # action_mask[Moves.RIGHT.value] = 0  # cant go right
+            # if y == Boundary.y1.value:
+                # action_mask[Moves.DOWN.value] = 0  # cant go down
+            # if y == Boundary.y2.value:
+                # action_mask[Moves.UP.value] = 0  # cant go up
 
         # Give rewards
-        individual_rewards = {
-            "leader": 0,
-            "follower": 0
-        }
+        individual_rewards = {}
         shared_reward = 0
-        for agent, x, y in zip(["leader", "follower"], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
+        x_pos = [self.leader.x, self.follower.x] if not self.leader_only else [self.leader.x]
+        y_pos = [self.leader.y, self.follower.y] if not self.leader_only else [self.leader.y]
+        for agent, x, y in zip(self.agents, x_pos, y_pos):
+            individual_rewards[agent] = 0
+
             if self.blocks[self.goal_block.value, x, y]:
                 shared_reward += 1
                 individual_rewards[agent] += 1
@@ -319,12 +356,12 @@ class ColorMaze(ParallelEnv):
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        shared_reward -= 1
-                        individual_rewards[agent] -= 1
+                        shared_reward -= self.block_penalty
+                        individual_rewards[agent] -= self.block_penalty
                         self.blocks = self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break # Can't step on two non-rewarding blocks at once
 
-        rewards = {'leader': shared_reward, 'follower': shared_reward}
+        rewards = {agent: shared_reward for agent in self.agents}
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
@@ -357,21 +394,32 @@ class ColorMaze(ParallelEnv):
         if ('leader' not in terminateds.keys()):
             breakpoint()
 
+        # Maybe update goal block
+        self.goal_switched = False
+        self._maybe_randomize_goal_block()
 
         observation = self._convert_to_observation(self.blocks)
         goal_info = np.zeros(NUM_COLORS)
         goal_info[self.goal_block.value] = 1
 
-        observations = {
-            "leader": {
-                "observation": observation,
-                "goal_info": goal_info
-            },
-            "follower": {
-                "observation": observation,
-                "goal_info": np.zeros(goal_info.shape)
+        if self.leader_only:
+            observations = {
+                "leader": {
+                    "observation": observation,
+                    "goal_info": goal_info
+                },
             }
-        }
+        else:
+            observations = {
+                "leader": {
+                    "observation": observation,
+                    "goal_info": goal_info
+                },
+                "follower": {
+                    "observation": observation,
+                    "goal_info": goal_info  # TODO make this zeros to bring back info hiding
+                }
+            }
         truncateds = terminateds
         return observations, individual_rewards, terminateds, truncateds, infos
 
@@ -379,7 +427,8 @@ class ColorMaze(ParallelEnv):
         """Render the environment."""
         grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
         grid[self.leader.x, self.leader.y] = "L"
-        grid[self.follower.x, self.follower.y] = "F"
+        if not self.leader_only:
+            grid[self.follower.x, self.follower.y] = "F"
         for x, y in np.argwhere(self.blocks[IDs.RED.value]):
             grid[x, y] = "R"
         for x, y in np.argwhere(self.blocks[IDs.GREEN.value]):

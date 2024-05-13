@@ -24,6 +24,7 @@ class StepData:
     shared_rewards: np.ndarray
     dones: torch.Tensor
     action_log_probs: torch.Tensor
+    action_entropies: np.ndarray
     values: torch.Tensor
     loss: float
     explained_var: float
@@ -47,15 +48,21 @@ class ActorCritic(nn.Module):
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
+            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
         ).to(device)
+        self.projection_linear = nn.Sequential(
+            layer_init(nn.Linear(43264, 192)).to(device),
+            nn.Tanh(),
+        )
         self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(64*6*6 + 3, 192)),
+            layer_init(nn.Linear(192 + 3, 192)),
+            nn.Tanh(),
+            layer_init(nn.Linear(192, self.lstm_hidden_size)),
             nn.Tanh(),
         ).to(device)
         self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
@@ -73,6 +80,11 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 1), std=1.0),
         ).to(device)
+        self.auxiliary_goalinfo_network = nn.Sequential(
+            layer_init(nn.Linear(192, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 3))
+        ).to(device)
 
     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         batch_size = x.size(0)
@@ -83,6 +95,7 @@ class ActorCritic(nn.Module):
         # Flatten convolution output channels into linear input
         # New shape: (batch_size, flattened_size)
         features = features.flatten(start_dim=1)
+        features = self.projection_linear(features)
 
         # Append one-hot reward encoding
         features = torch.cat((features, goal_info), dim=1)
@@ -100,17 +113,23 @@ class ActorCritic(nn.Module):
         # features: (batch_size, 1, feature_size)
         # last_timestep_features: (batch_size, feature_size)
         last_timestep_features = features[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
+        return (
+            self.policy_network(last_timestep_features),
+            self.value_network(last_timestep_features),
+            self.auxiliary_goalinfo_network(last_timestep_features),
+            (hidden_states, cell_states)
+        )
 
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
 
-    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
-        logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
+    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None, sampling_temperature: float = 1.0):
+        logits, value, goalinfo_logits, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
         probs = Categorical(logits=logits)
         if action is None:
-            action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
+            sampling_probs = Categorical(logits=logits / sampling_temperature)
+            action = sampling_probs.sample()
+        return action, probs.log_prob(action), probs.entropy(), value, goalinfo_logits, (hidden_states, cell_states)
 
 def step(
         envs: Sequence[ParallelEnv],
@@ -128,9 +147,11 @@ def step(
         entropy_coef: float,
         value_func_coef: float,
         max_grad_norm: float,
-        seed: int,
+        seeds: list[int],
         target_kl: float | None,
-        share_observation_tensors: bool = True
+        block_penalty: float,
+        sampling_temperature: float = 1.0,
+        goalinfo_loss_coef: float = 0
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -154,13 +175,7 @@ def step(
     action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
     assert len(action_space_shapes) == len(models)
 
-    if share_observation_tensors:
-        assert all(shape == list(observation_space_shapes.values())[0] for shape in observation_space_shapes.values())
-        # Observations are the same, so we can share the tensors to save memory
-        observations = torch.zeros((num_steps, len(envs)) + list(observation_space_shapes.values())[0]).to(DEVICE)  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
-        all_observations = {agent: observations for agent in models}
-    else:
-        all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
+    all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
 
     all_goal_info = {
        agent: torch.zeros((num_steps, len(envs)) + goal_info_shapes[agent]).to(models[agent].device)
@@ -173,12 +188,13 @@ def step(
     all_shared_rewards = {agent: np.zeros((num_steps, len(envs))) for agent in models}
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
+    all_entropies = {agent: np.zeros((num_steps, len(envs))) for agent in models}
 
     # num_steps + 1 so that indexing by step gives the *input* states at that step
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
     # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
     # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
 
@@ -186,16 +202,11 @@ def step(
     # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
     # breakpoint()
 
-    if share_observation_tensors:
-        next_observation = np.array([list(obs_dict.values())[0]["observation"] for obs_dict in next_observation_dicts])
-        next_observation = torch.tensor(next_observation).to(DEVICE)
-        next_observations = {agent: next_observation for agent in models}
-    else:
-        next_observations = {
-            agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
-            for agent in models
-        }
-        next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
+    next_observations = {
+        agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
+        for agent in models
+    }
+    next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
     next_goal_info = {
         agent: np.array([obs_dict[agent]["goal_info"] for obs_dict in next_observation_dicts])
         for agent in models
@@ -217,7 +228,12 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
+                action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
+                    next_observations[agent],
+                    next_goal_info[agent],
+                    prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
+                    sampling_temperature=sampling_temperature
+                )
                 step_actions[agent] = action.cpu().numpy()
                 lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
                 lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
@@ -225,6 +241,7 @@ def step(
                 all_actions[agent][step] = action
                 all_logprobs[agent][step] = logprob
                 all_values[agent][step] = value.flatten()
+                all_entropies[agent][step] = entropy.flatten().cpu().numpy()
 
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
@@ -292,12 +309,28 @@ def step(
         b_inds = np.arange(batch_size)
         clipfracs = []
         for epoch in range(ppo_update_epochs):
+            # TODO i think ESL-MARL is shuffling while preserving some trajectory ordering,
+            # and they give the hidden state for only the initial observation for each mini-trajectory.
+            """
+            Each parameter update consists of 20 sequential mini-batch
+            updates with the same batch of rollouts (128 episodes).
+            Each mini-batch consists of a uniform random sample of
+            trajectories from that batch. Hidden states are stored alongside 
+            the trajectories, and the initial hidden state for each
+            mini-batch trajectory is retrieved from these stored values.
+            Hidden states and advantage values for the entire batch are
+            re-calculated every 2 mini-batches. The mini-batch iteration
+            ceases if KL(𝜋, 𝜋𝑟𝑜𝑙𝑙𝑜𝑢𝑡) exceeds a target of 0.01. If for any
+            mini-batch the estimated divergence exceeds a hard limit of
+            0.03, the update terminates and all changes to the network
+            parameters and optimizer state are reverted.
+            """
             np.random.shuffle(b_inds)
             for start in range(0, batch_size, minibatch_size):
                 end = start + minibatch_size
                 mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue, _ = model.get_action_and_value(
+                _, newlogprob, entropy, newvalue, goalinfo_logits, _ = model.get_action_and_value(
                     b_obs[mb_inds], 
                     goal_info=b_goal_info.long()[mb_inds], 
                     action=b_actions.long()[mb_inds],
@@ -335,8 +368,13 @@ def step(
                 else:
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
+                # Auxiliary goalinfo prediction loss
+                # TODO if removing follower goalinfo, do this only for the leader
+                ce_loss_func = torch.nn.CrossEntropyLoss()
+                goalinfo_loss = ce_loss_func(goalinfo_logits, b_goal_info.long()[mb_inds].argmax(dim=-1).view(-1))
+
                 entropy_loss = entropy.mean()
-                loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef
+                loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef + goalinfo_loss * goalinfo_loss_coef
                 acc_losses[agent] += loss.detach().cpu().item()
 
                 optimizers[agent].zero_grad()
@@ -361,6 +399,7 @@ def step(
             shared_rewards=all_shared_rewards[agent],
             dones=all_dones[agent].cpu(),
             action_log_probs=all_logprobs[agent].cpu(),
+            action_entropies=all_entropies[agent],
             values=all_values[agent].cpu(),
             loss=acc_losses[agent] / ppo_update_epochs,
             explained_var=explained_var[agent],
@@ -374,7 +413,13 @@ def train(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
+        leader_only: bool = False,
         warmstart_leader_path: str | None = None,
+        compile: bool = False,
+        # Env params
+        block_density: float = 0.05,
+        no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
+        full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
         # PPO params
         total_timesteps: int = 500000,
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -391,6 +436,8 @@ def train(
         value_func_coef: float = 0.5,
         max_grad_norm: float = 0.5,  # max gradnorm for gradient clipping
         target_kl: float | None = None,  # target KL divergence threshold
+        sampling_temperature: float = 1.0,
+        goalinfo_loss_coef: float = 0.0,
         # Config params
         save_data_iters: int = 100, # Save data every 100 iterations from num_iterations, calculated below
         checkpoint_iters: int = 0,
@@ -406,6 +453,7 @@ def train(
     os.makedirs(f'results/{run_name}', exist_ok=True)
 
     torch.manual_seed(seed)
+    env_seeds = [seed + i for i in range(num_envs)]
 
     batch_size = num_envs * num_steps_per_rollout
     minibatch_size = batch_size // num_minibatches
@@ -416,15 +464,11 @@ def train(
     # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-    envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(leader_only=leader_only, block_density=block_density) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
 
-    # Observation and action spaces are the same for leader and follower
-    leader_obs_space = envs[0].observation_spaces['leader']
-    follower_obs_space = envs[0].observation_spaces['follower']
-    act_space = envs[0].action_space
 
     if torch.cuda.device_count() > 1:
         model_devices = {
@@ -437,12 +481,20 @@ def train(
             'follower': DEVICE
         }
 
-    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
-    follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
+    # Observation and action spaces are the same for leader and follower
+    act_space = envs[0].action_space
+    leader_obs_space = envs[0].observation_spaces['leader']
+    leader = torch.compile(ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader']), mode='reduce-overhead')  # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
-    follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
-    models = {'leader': leader, 'follower': follower}
-    optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
+    if leader_only:
+        models = {'leader': leader}
+        optimizers = {'leader': leader_optimizer}
+    else:
+        follower_obs_space = envs[0].observation_spaces['follower']
+        follower = torch.compile(ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']), mode='reduce-overhead') # type: ignore
+        follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
+        models = {'leader': leader, 'follower': follower}
+        optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
 
     if resume_iter:
         # Load checkpoint state to resume run
@@ -458,12 +510,27 @@ def train(
         optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
         optimizers['leader'].load_state_dict(torch.load(optimizer_path))
 
+    if compile:
+        for name, model in models.items():
+            models[name] = torch.compile(model, mode='reduce-overhead')
+
+    assert no_block_penalty_until <= full_block_penalty_at
+    if full_block_penalty_at == 0:
+        penalty_inc_per_step = 0
+        get_block_penalty = lambda step: 1
+    else:
+        penalty_inc_per_step = 1 / (full_block_penalty_at - no_block_penalty_until)
+        get_block_penalty = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
+
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
+    print(f'No block penalty until {no_block_penalty_until}, full -1 penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
+
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
         if resume_iter and iteration <= resume_iter:
             continue
 
+        block_penalty = get_block_penalty(iteration * batch_size)
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
@@ -480,9 +547,11 @@ def train(
             entropy_coef=entropy_coef,
             value_func_coef=value_func_coef,
             max_grad_norm=max_grad_norm,
-            seed=seed,
+            seeds=env_seeds,
             target_kl=target_kl,
-            share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
+            block_penalty=block_penalty,
+            sampling_temperature=sampling_temperature,
+            goalinfo_loss_coef=goalinfo_loss_coef,
         )
 
         metrics = {}
@@ -492,10 +561,13 @@ def train(
                 'explained_var': results.explained_var,
                 'reward': results.rewards.sum(dim=0).mean(),  # Sum along step dim and average along env dim
                 'individual_reward': results.individual_rewards.sum(axis=0).mean(),
-                'shared_reward': results.shared_rewards.sum(axis=0).mean()  
+                'positive_individual_reward': (results.individual_rewards > 0).sum(axis=0).mean(),
+                'shared_reward': results.shared_rewards.sum(axis=0).mean(),
+                'action_entropy': results.action_entropies.mean()
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
+        metrics['block_penalty'] = block_penalty
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
@@ -520,6 +592,9 @@ def train(
                 torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
                 optimizer = optimizers[agent_name]
                 torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
+
+        for i in range(len(envs)):
+            env_seeds[i] += len(envs)
 
     for agent_name, model in models.items():
         torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
