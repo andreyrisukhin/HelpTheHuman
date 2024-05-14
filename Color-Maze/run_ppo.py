@@ -420,6 +420,7 @@ def train(
         block_density: float = 0.05,
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
         full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
+        asymmetric: bool = False,  # True if the follower should NOT get goal info
         # PPO params
         total_timesteps: int = 500000,
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -464,7 +465,7 @@ def train(
     # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-    envs = [ColorMaze(leader_only=leader_only, block_density=block_density) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
