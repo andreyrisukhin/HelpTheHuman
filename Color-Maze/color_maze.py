@@ -91,7 +91,6 @@ class ColorMaze(ParallelEnv):
         self.block_penalty = 1
 
         # Agents
-<<<<<<< HEAD
         self.leader_only = leader_only
         if leader_only:
             self.possible_agents:List[str] = ["leader"]
@@ -105,12 +104,6 @@ class ColorMaze(ParallelEnv):
         self.asymmetric = asymmetric
 
         self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
-=======
-        self.possible_agents:List[str] = ["leader", "follower"]
-        self.agents:List[str] = copy(self.possible_agents)
-        self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
-        self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
->>>>>>> 452616c (dataset generation)
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
@@ -124,7 +117,6 @@ class ColorMaze(ParallelEnv):
         # Spaces
         goal_block_space = MultiDiscrete([2] * NUM_COLORS)
 
-<<<<<<< HEAD
         if leader_only:
             self.observation_spaces = { # Python dict, not gym spaces Dict.
                 "leader": DictSpace({
@@ -143,7 +135,7 @@ class ColorMaze(ParallelEnv):
                     "goal_info": goal_block_space
                 })
             }
-=======
+
         # Dataset fields, standard returned information
         self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
         self.observation_spaces = { # Python dict, not gym spaces Dict.
@@ -156,7 +148,6 @@ class ColorMaze(ParallelEnv):
                 "goal_info": goal_block_space
             })
         }
->>>>>>> 452616c (dataset generation)
 
         # Environment duration
         self.timestep = 0
