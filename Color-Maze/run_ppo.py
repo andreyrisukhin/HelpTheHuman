@@ -415,6 +415,7 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,
         warmstart_leader_path: str | None = None,
+        warmstart_follower_path: str | None = None,
         compile: bool = False,
         # Env params
         block_density: float = 0.05,
@@ -503,13 +504,41 @@ def train(
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
             optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
-            model.load_state_dict(torch.load(model_path))
+            state_dict = torch.load(model_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            model.load_state_dict(patched_state_dict)
             optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
-    elif warmstart_leader_path:
-        print(f"Warmstarting leader model from {warmstart_leader_path}")
-        leader.load_state_dict(torch.load(warmstart_leader_path))
-        optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
-        optimizers['leader'].load_state_dict(torch.load(optimizer_path))
+    else:
+        if warmstart_leader_path:
+            print(f"Warmstarting leader model from {warmstart_leader_path}")
+            state_dict = torch.load(warmstart_leader_path)
+            breakpoint()
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            leader.load_state_dict(patched_state_dict)
+            optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
+            optimizers['leader'].load_state_dict(torch.load(optimizer_path))
+        if warmstart_follower_path:
+            print(f"Warmstarting follower model from {warmstart_follower_path}")
+            state_dict = torch.load(warmstart_follower_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            follower.load_state_dict(patched_state_dict)
+            optimizer_path = warmstart_follower_path.replace('iteration', 'optimizer_iteration')
+            optimizers['follower'].load_state_dict(torch.load(optimizer_path))
 
     if compile:
         for name, model in models.items():
