@@ -62,19 +62,33 @@ def append_data(data, s, a, tgt, done:bool, env_data):
         breakpoint()
 
 def npify(data):
-    breakpoint()
-    # TODO add env segmentation
+    # Convert all dict lists to numpy arrays
     for key in data:
         if key == 'terminal' or key == 'terminals':
             dtype = np.bool_
         else:
             dtype = np.float32
-
         data[key] = np.array(data[key], dtype=dtype)
-
-    breakpoint()
+    # Example had this code, including leading 1 dimension. If error, ensure arrays don't have the leading 1 dimension?        
     """
-    data['terminals'] = (1, 128, 4)
+    data['observations'].shape: (1, 128, 4, 5, 32, 32)
+    data['actions'].shape: (1, 128, 4)
+    data['terminals'].shape: (1, 128, 4)
+    data['rewards'].shape: (1, ) <- TODO check if this is correct
+    data['infos/goal'].shape: (1, 128, 4, 3)
+    """
+
+    # Reorder all arrays to be in the shape (timesteps x envs, ..) where environment steps are contiguous.
+    flattened_data = {}
+    for key in data:
+        if data[key].ndim >= 3:
+            flattened_data[key] = np.concatenate(data[key], axis=3)
+        else:
+            flattened_data[key] = data[key]
+    return flattened_data
+    
+    """
+    TODO more intelligent splitting based on terminals. Our terminals seem never to be true, but we know when our envs end, so okay?
 
     First, concat by column to split the four envs. Then, split by terminals.
     """
@@ -92,8 +106,6 @@ def npify(data):
     # last_dones_idxs = [np.where(data['terminals'][i])[0][-1] for i in range(len(data['terminals']))]
     # last_dones_idxs = np.array(last_dones_idxs)
 
-    breakpoint()
-    return data
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
