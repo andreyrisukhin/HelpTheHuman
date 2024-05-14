@@ -175,7 +175,6 @@ def step(
     action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
     assert len(action_space_shapes) == len(models)
 
-    breakpoint()
     all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
 
     all_goal_info = {
@@ -196,12 +195,7 @@ def step(
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
     next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
-    # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
-    # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
-
-
-    # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
-    # breakpoint()
+    # Actually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
 
     next_observations = {
         agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
@@ -261,13 +255,6 @@ def step(
             all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
             all_shared_rewards[agent][step] = next_shared_rewards[agent].reshape(-1)
 
-
-        # if (step == 105):
-        #     breakpoint()
-        # if any('leader' not in terminated.keys() for terminated in terminated_dicts):
-        #     breakpoint()
-        #     # Consistently on step 106. Aha, but step 106 happens multiple times. Does this only break when env rollout (old reset) occurs?
-            # TODO understand where the 106 error comes from, and how related to env rollout.
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
         
@@ -498,8 +485,6 @@ def train(
         follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
         models = {'leader': leader, 'follower': follower}
         optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
-
-    breakpoint()
 
     if resume_iter:
         # Load checkpoint state to resume run
