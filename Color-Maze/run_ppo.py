@@ -415,6 +415,7 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,
         warmstart_leader_path: str | None = None,
+        compile: bool = False,
         # Env params
         block_density: float = 0.05,
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
@@ -483,14 +484,14 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
-    leader = torch.compile(ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader']), mode='reduce-overhead')  # type: ignore
+    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     if leader_only:
         models = {'leader': leader}
         optimizers = {'leader': leader_optimizer}
     else:
         follower_obs_space = envs[0].observation_spaces['follower']
-        follower = torch.compile(ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']), mode='reduce-overhead') # type: ignore
+        follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
         follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
         models = {'leader': leader, 'follower': follower}
         optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
