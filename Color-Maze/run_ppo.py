@@ -486,14 +486,14 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
-    leader = torch.compile(ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader']), mode='reduce-overhead')  # type: ignore
+    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     if leader_only:
         models = {'leader': leader}
         optimizers = {'leader': leader_optimizer}
     else:
         follower_obs_space = envs[0].observation_spaces['follower']
-        follower = torch.compile(ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']), mode='reduce-overhead') # type: ignore
+        follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower'])  # type: ignore
         follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
         models = {'leader': leader, 'follower': follower}
         optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
@@ -504,17 +504,39 @@ def train(
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
             optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
-            model.load_state_dict(torch.load(model_path))
+            state_dict = torch.load(model_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            model.load_state_dict(patched_state_dict)
             optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
     else:
         if warmstart_leader_path:
             print(f"Warmstarting leader model from {warmstart_leader_path}")
-            leader.load_state_dict(torch.load(warmstart_leader_path))
+            state_dict = torch.load(warmstart_leader_path)
+            breakpoint()
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            leader.load_state_dict(patched_state_dict)
             optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
             optimizers['leader'].load_state_dict(torch.load(optimizer_path))
         if warmstart_follower_path:
             print(f"Warmstarting follower model from {warmstart_follower_path}")
-            follower.load_state_dict(torch.load(warmstart_follower_path))
+            state_dict = torch.load(warmstart_follower_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            follower.load_state_dict(patched_state_dict)
             optimizer_path = warmstart_follower_path.replace('iteration', 'optimizer_iteration')
             optimizers['follower'].load_state_dict(torch.load(optimizer_path))
 
