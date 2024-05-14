@@ -175,6 +175,7 @@ def step(
     action_space_shapes = {key: value for key, value in action_space_shapes.items() if value is not None}
     assert len(action_space_shapes) == len(models)
 
+    breakpoint()
     all_observations = {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
 
     all_goal_info = {
@@ -484,7 +485,7 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
-    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
+    leader = torch.compile(ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader']), mode='reduce-overhead') 
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     if leader_only:
         models = {'leader': leader}
@@ -495,6 +496,8 @@ def train(
         follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
         models = {'leader': leader, 'follower': follower}
         optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
+
+    breakpoint()
 
     if resume_iter:
         # Load checkpoint state to resume run

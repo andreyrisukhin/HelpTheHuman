@@ -49,7 +49,7 @@ def reset_data():
         # 'infos/qvel': [], # Env-specific to the example # TODO for ColorMaze, no need to store extra
     }
 
-def append_data(data, s, a, tgt, done:bool, env_data):
+def append_data(data, s, a, tgt, done, env_data): # done is not a bool but a tensor because multiple envs
     data['observations'].append(s)
     data['actions'].append(a)
     data['terminals'].append(done)
@@ -58,9 +58,6 @@ def append_data(data, s, a, tgt, done:bool, env_data):
     # data['infos/qpos'].append(env_data.qpos.ravel().copy())
     # data['infos/qvel'].append(env_data['qvel'])
     
-    if 1 in done:
-        breakpoint()
-
 def npify(data):
     # Convert all dict lists to numpy arrays
     for key in data:
