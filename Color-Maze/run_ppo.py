@@ -403,11 +403,13 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,
         warmstart_leader_path: str | None = None,
+        warmstart_follower_path: str | None = None,
         compile: bool = False,
         # Env params
         block_density: float = 0.05,
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
         full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
+        asymmetric: bool = False,  # True if the follower should NOT get goal info
         # PPO params
         total_timesteps: int = 500000,
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -452,7 +454,7 @@ def train(
     # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
     # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-    envs = [ColorMaze(leader_only=leader_only, block_density=block_density) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
 
@@ -490,13 +492,41 @@ def train(
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
             optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
-            model.load_state_dict(torch.load(model_path))
+            state_dict = torch.load(model_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            model.load_state_dict(patched_state_dict)
             optimizers[agent_name].load_state_dict(torch.load(optimizer_path))
-    elif warmstart_leader_path:
-        print(f"Warmstarting leader model from {warmstart_leader_path}")
-        leader.load_state_dict(torch.load(warmstart_leader_path))
-        optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
-        optimizers['leader'].load_state_dict(torch.load(optimizer_path))
+    else:
+        if warmstart_leader_path:
+            print(f"Warmstarting leader model from {warmstart_leader_path}")
+            state_dict = torch.load(warmstart_leader_path)
+            breakpoint()
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            leader.load_state_dict(patched_state_dict)
+            optimizer_path = warmstart_leader_path.replace('iteration', 'optimizer_iteration')
+            optimizers['leader'].load_state_dict(torch.load(optimizer_path))
+        if warmstart_follower_path:
+            print(f"Warmstarting follower model from {warmstart_follower_path}")
+            state_dict = torch.load(warmstart_follower_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            follower.load_state_dict(patched_state_dict)
+            optimizer_path = warmstart_follower_path.replace('iteration', 'optimizer_iteration')
+            optimizers['follower'].load_state_dict(torch.load(optimizer_path))
 
     if compile:
         for name, model in models.items():
