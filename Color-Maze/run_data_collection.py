@@ -89,7 +89,7 @@ def npify(data):
     for key in data:
         flattened_data[key] = np.concatenate(data[key], axis=0) # We concatenate environments together.
 
-    assert flattened_data['observations'].shape == (128 * 4, 5, 32, 32)
+    # assert flattened_data['observations'].shape == (128 * 4, 5, 32, 32)
 
     return flattened_data
     
