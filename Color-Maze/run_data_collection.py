@@ -22,6 +22,7 @@ from pettingzoo import ParallelEnv
 
 from color_maze import ColorMaze
 from color_maze import ColorMazeRewards
+from run_ppo import ActorCritic
 
 import h5py
 
@@ -119,157 +120,6 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-class ActorCritic(nn.Module):
-    def __init__(self, observation_space, action_space, device):
-        super().__init__()
-        self.lstm_hidden_size = 192
-        self.device = device
-
-        # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
-        self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
-            nn.LeakyReLU(),
-            layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
-            nn.LeakyReLU(),
-            layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
-            nn.LeakyReLU(),
-        ).to(device)
-        self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(43264, 192)),
-            nn.Tanh(),
-            layer_init(nn.Linear(192, 192)),
-            nn.Tanh(),
-        ).to(device)
-        # self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
-        self.policy_network = nn.Sequential(
-            layer_init(nn.Linear(self.lstm_hidden_size, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, action_space.n), std=0.01),
-        ).to(device)
-        self.value_network = nn.Sequential(
-            layer_init(nn.Linear(192, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
-        ).to(device)
-
-    def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-        batch_size = x.size(0)
-
-        # Apply conv network in parallel on each sequence slice
-        features = self.conv_network(x)
-
-        # Flatten convolution output channels into linear input
-        # New shape: (batch_size, flattened_size)
-        features = features.flatten(start_dim=1)
-
-        # Append one-hot reward encoding
-        # features = torch.cat((features, goal_info), dim=1)
-        features = self.feature_linear(features)
-
-        # # Pass through LSTM; add singular sequence length dimension for LSTM input
-        # features = features.reshape(batch_size, 1, -1)
-        # if prev_hidden_and_cell_states is not None:
-            # prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-        # features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
-
-        # Grab all batches and remove sequence length dimension
-        # features: (batch_size, 1, feature_size)
-        # last_timestep_features: (batch_size, feature_size)
-        last_timestep_features = features  #[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
-
-    def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-        return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
-
-    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None, sampling_temperature: float = 1.0):
-        logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
-        probs = Categorical(logits=logits)
-        if action is None:
-            sampling_probs = Categorical(logits=logits / sampling_temperature)
-            action = sampling_probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
-
-
-# Full network, commented out to match checkpoint
-# class ActorCritic(nn.Module):
-#     def __init__(self, observation_space, action_space, device):
-#         super().__init__()
-#         self.lstm_hidden_size = 192
-#         self.device = device
-
-#         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
-#         self.conv_network = nn.Sequential(
-#             layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
-#             nn.LeakyReLU(),
-#             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
-#             nn.LeakyReLU(),
-#             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
-#             nn.LeakyReLU(),
-#         ).to(device)
-#         self.feature_linear = nn.Sequential(
-#             layer_init(nn.Linear(64*6*6 + 3, 192)),
-#             nn.Tanh(),
-#         ).to(device)
-#         self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
-#         self.policy_network = nn.Sequential(
-#             layer_init(nn.Linear(self.lstm_hidden_size, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, action_space.n), std=0.01),
-#         ).to(device)
-#         self.value_network = nn.Sequential(
-#             layer_init(nn.Linear(192, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, 1), std=1.0),
-#         ).to(device)
-
-#     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-#         batch_size = x.size(0)
-
-#         # Apply conv network in parallel on each sequence slice
-#         features = self.conv_network(x)
-
-#         # Flatten convolution output channels into linear input
-#         # New shape: (batch_size, flattened_size)
-#         features = features.flatten(start_dim=1)
-
-#         # Append one-hot reward encoding
-#         features = torch.cat((features, goal_info), dim=1)
-#         features = self.feature_linear(features)
-
-#         # Pass through LSTM; add singular sequence length dimension for LSTM input
-#         features = features.reshape(batch_size, 1, -1)
-#         if prev_hidden_and_cell_states is not None:
-#             prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-#             prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-#             prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-#         features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
-
-#         # Grab all batches and remove sequence length dimension
-#         # features: (batch_size, 1, feature_size)
-#         # last_timestep_features: (batch_size, feature_size)
-#         last_timestep_features = features[:, -1, ...].squeeze(1)
-#         return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
-
-#     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-#         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
-
-#     def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
-#         logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
-#         probs = Categorical(logits=logits)
-#         if action is None:
-#             action = probs.sample()
-#         return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
-
 
 def step(
         envs: Sequence[ParallelEnv],
@@ -360,7 +210,7 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
+                action, logprob, _, value, _, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
                 step_actions[agent] = action.cpu().numpy()
                 lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
                 lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
@@ -581,7 +431,8 @@ def collect_data(
 
 
     # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
-    if not log_file_name: log_file_name = f"{run_name}_{resume_iter}"
+    if not log_file_name: 
+        log_file_name = f"{run_name}_{resume_iter}"
     dataset_leader = h5py.File(log_file_name + "_leader_testing4.hdf5", 'w')
     dataset_follower = h5py.File(log_file_name + "_follower_testing4.hdf5", 'w')
     leader_data = npify(leader_data)
