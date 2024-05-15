@@ -568,8 +568,8 @@ def collect_data(
 
     # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
     if not log_file_name: log_file_name = f"{run_name}_{resume_iter}"
-    dataset_leader = h5py.File(log_file_name + "_leader_testing4", 'w') # TODO figure out where files are saved, look at them.
-    dataset_follower = h5py.File(log_file_name + "_follower_testing4", 'w')
+    dataset_leader = h5py.File(log_file_name + "_leader_testing4.hdf5", 'w') # TODO figure out where files are saved, look at them.
+    dataset_follower = h5py.File(log_file_name + "_follower_testing4.hdf5", 'w')
     leader_data = npify(leader_data)
     follower_data = npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
     for key in leader_data:
