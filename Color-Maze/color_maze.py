@@ -176,7 +176,6 @@ class ColorMaze(ParallelEnv):
 
         '''
         leader_dataset = {}
-        # with h5py.File(path_leader, 'r') as leader_file:
         leader_file = h5py.File(path_leader, 'r')
         leader_dataset["rewards"] = leader_file['rewards']
         leader_dataset["observations"] = leader_file['observations']
@@ -191,17 +190,17 @@ class ColorMaze(ParallelEnv):
         follower_dataset["terminals"] = follower_file['terminals']
         follower_dataset["infos"] = follower_file['infos/goal']
 
-        breakpoint()
-        joint_observations = [] # Same as individual observations[:-1]
-        joint_goal_info =[] # Same as individual goal info[:-1], needed because part of state
-        joint_actions =[] # Combine leader and follower actions into a single action space
-        joint_rewards = []# Sum leader and follower rewards across each time step
-        joint_next_observations =[] # Same as individual next observations[1:]
-        joint_next_goal_info =[] # Same as individual next goal info[1:], needed because part of state
-        joint_terminals = [] # all 0 for same length as rest
-
-        dummy_data = {"leader": False, "follower": False}
+        # Same as individual observations[:-1]
+        joint_observations = leader_dataset["observations"][:-1]
+        joint_goal_info = leader_dataset["infos"][-1] # Same as individual goal info[:-1], needed because part of state
+        joint_actions = leader_dataset["actions"][:-1] * 4 + follower_dataset["actions"][:-1] # Combine leader and follower actions into a single action space
+        joint_rewards = leader_dataset["rewards"][:-1] + follower_dataset["rewards"][:-1]   # Sum leader and follower rewards across each time step
+        joint_next_observations = leader_dataset["observations"][:-1] # Same as individual
+        joint_next_goal_info = leader_dataset["infos"][:-1] # Same as individual
         
+        # Always 0 is fine since we will sample randomly in iql, and our data construction is sars'
+        joint_terminals = np.zeros_like(leader_dataset["terminals"])
+
         joint_dataset = { 
             "observations": joint_observations,
             "goal_info": joint_goal_info,
@@ -209,11 +208,7 @@ class ColorMaze(ParallelEnv):
             "rewards": joint_rewards,
             "next_observations": joint_next_observations,
             "next_goal_info": joint_next_goal_info,
-
-            # TODO decide which of below are needed
-            "terminals": terminals, # Always 0 is fine. We will sample randomly in iql, and our data construction is sars', so that is fine.
-            # "timeouts": dummy_data,
-            # "infos": infos,
+            "terminals": joint_terminals,
         }
         return joint_dataset
 

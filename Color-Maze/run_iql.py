@@ -60,7 +60,7 @@ def get_env_and_dataset(seed=None, reward_shaping_fns=[]):
     'Each task is associated with a fixed offline dataset, which can be obtained with the env.get_dataset() method' implies we should create a dataset from an env and fully trained policy. Does that sound right?
     """
     env = ColorMaze(seed, reward_shaping_fns=reward_shaping_fns)
-    dataset = env.load_q_learning_dataset()
+    dataset = env.load_joint_q_learning_dataset()
     print('\t Max episode steps:', env._max_episode_steps)
     print('\t',dataset['observations'].shape, dataset['actions'].shape)
     assert 'observations' in dataset, 'Observations not in dataset'
