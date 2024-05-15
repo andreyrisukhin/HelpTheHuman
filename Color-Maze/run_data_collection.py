@@ -71,17 +71,26 @@ def npify(data):
     data['observations'].shape: (1, 128, 4, 5, 32, 32)
     data['actions'].shape: (1, 128, 4)
     data['terminals'].shape: (1, 128, 4)
-    data['rewards'].shape: (1, ) <- TODO check if this is correct
+    data['rewards'].shape: (1, 128, 4)
     data['infos/goal'].shape: (1, 128, 4, 3)
     """
-    breakpoint()
+    # Squeeze the leading 1 dimension
+    for key in data:
+        data[key] = np.squeeze(data[key], axis=0)
+    """
+    data['observations'].shape: (128, 4, 5, 32, 32)
+    data['actions'].shape: (128, 4)
+    data['terminals'].shape: (128, 4)
+    data['rewards'].shape: (128, 4)
+    data['infos/goal'].shape: (128, 4, 3)
+    """
     # Reorder all arrays to be in the shape (timesteps x envs, ..) where environment steps are contiguous.
     flattened_data = {}
     for key in data:
-        if data[key].ndim > 3:
-            flattened_data[key] = np.concatenate(data[key], axis=3) # TODO this has a dim bug
-        else:
-            flattened_data[key] = data[key]
+        flattened_data[key] = np.concatenate(data[key], axis=0) # We concatenate environments together.
+
+    assert flattened_data['observations'].shape == (128 * 4, 5, 32, 32)
+
     return flattened_data
     
     """
