@@ -42,6 +42,53 @@ def mlp(dims, activation=nn.ReLU, output_activation=None, squeeze_output=False):
     return net
 
 
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+class ConvNet(nn.Module):
+    def __init__(self, observation_space, device, feature_dim: int = 192):
+        super().__init__()
+        self.device = device
+        self.feature_dim = feature_dim
+
+        # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
+        self.conv_network = nn.Sequential(
+            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
+            nn.LeakyReLU(),
+            layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
+            nn.LeakyReLU(),
+            layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
+            nn.LeakyReLU(),
+        ).to(device)
+        self.projection_linear = nn.Sequential(
+            layer_init(nn.Linear(43264, feature_dim)).to(device),
+            nn.Tanh(),
+        )
+
+    def forward(self, observation):
+        features = self.conv_network(observation)
+        # Flatten convolution output channels into linear input
+        # New shape: (batch_size, flattened_size)
+        features = features.flatten(start_dim=1)
+        features = self.projection_linear(features)
+        return features
+
+
+class ConvNetMLP(nn.Module):
+    def __init__(self, convnet, mlp, device):
+        super().__init__()
+        self.device = device
+        self.convnet = convnet
+        self.mlp = mlp
+
+    def forward(self, observation, added_info):
+        features = self.convnet(observation)
+        return self.mlp(torch.cat((features, added_info), dim=1))
+
+
 def compute_batched(f, xs):
     return f(torch.cat(xs, dim=0)).split([len(x) for x in xs])
 
