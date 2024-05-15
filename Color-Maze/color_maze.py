@@ -156,32 +156,64 @@ class ColorMaze(ParallelEnv):
         # Reward shaping
         self.reward_shaping_fns = reward_shaping_fns
 
-    def load_q_learning_dataset(self, path: str):
+    def load_joint_q_learning_dataset(self, path_leader: str, path_follower:str):
         """
         Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
         """
-        file = h5py.File(path, 'r')
+        ''''
+        SARS' for joint space
+        States are the same, take either
+        Same with S'
+        Reward should be summed for both agents, joint reward
+        Actions are joint, collected independently 1x4 two of them, so 2x4
+            joint actions space is 4x4 cominations of "actions", 16 
+            Define: leader goes first
 
-        rewards = file['rewards']
-        observations = file['observations']
-        actions = file['actions']
-        terminals = file['terminals']
-        infos = file['infos/goal']
+            Joint Action at timestep t: (a_leader, a_follower)
+            Leader: i 
+            Follower: j
+            Joint Action: i*4 + j
 
-        file.close()
+        '''
+        leader_dataset = {}
+        with h5py.File(path_leader, 'r') as leader_file:
+            leader_dataset["rewards"] = leader_file['rewards']
+            leader_dataset["observations"] = leader_file['observations']
+            leader_dataset["actions"] = leader_file['actions']
+            leader_dataset["terminals"] = leader_file['terminals']
+            leader_dataset["infos"] = leader_file['infos/goal']
+        follower_dataset = {}
+        with h5py.File(path_follower, 'r') as follower_file:
+            follower_dataset["rewards"] = follower_file['rewards']
+            follower_dataset["observations"] = follower_file['observations']
+            follower_dataset["actions"] = follower_file['actions']
+            follower_dataset["terminals"] = follower_file['terminals']
+            follower_dataset["infos"] = follower_file['infos/goal']
+
+        joint_observations = # Same as individual observations[:-1]
+        joint_goal_info = # Same as individual goal info[:-1], needed because part of state
+        joint_actions = # Combine leader and follower actions into a single action space
+        joint_rewards = # Sum leader and follower rewards across each time step
+        joint_next_observations = # Same as individual next observations[1:]
+        joint_next_goal_info = # Same as individual next goal info[1:], needed because part of state
+        joint_terminals = # all 0 for same length as rest
 
         dummy_data = {"leader": False, "follower": False}
         
-        dataset = { 
-            "observations": observations,
-            "actions": actions,
-            "rewards": rewards,
-            "terminals": terminals,
-            "timeouts": dummy_data,
-            "infos": infos,
-            "next_observations": dummy_data
+        joint_dataset = { 
+            "observations": joint_observations,
+            "goal_info": joint_goal_info,
+            "actions": joint_actions,
+            "rewards": joint_rewards,
+            "next_observations": joint_next_observations,
+            "next_goal_info": joint_next_goal_info,
+
+            # TODO decide which of below are needed
+            "terminals": terminals, # Always 0 is fine. We will sample randomly in iql, and our data construction is sars', so that is fine.
+            # "timeouts": dummy_data,
+            # "infos": infos,
         }
-        return dataset
+        return joint_dataset
 
     def _maybe_randomize_goal_block(self):
         if self.rng.random() < self.prob_block_switch:
