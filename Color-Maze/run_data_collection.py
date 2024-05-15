@@ -390,8 +390,6 @@ def collect_data(
 
         """
 
-
-
         metrics = {}
         for agent, results in step_results.items(): # type: ignore
             metrics[agent] = {
@@ -406,17 +404,6 @@ def collect_data(
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
-
-        # Save data collection every iteration
-        observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
-        goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-            # (env, minibatch = bsz / num minibsz, goal_dim)
-        for i in range(observation_states.size(0)):
-            trajectory = observation_states[i].numpy()
-            goal_infos_i = goal_infos[i].numpy()
-            os.makedirs(f'data_collection/{run_name}', exist_ok=True)
-            np.save(f"data_collection/{run_name}/data_collection_{iteration=}_env={i}.npy", trajectory)
-            np.save(f"data_collection/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos_i)
 
         if debug_print:
             print(f"iter {iteration}: {metrics}")
