@@ -176,27 +176,29 @@ class ColorMaze(ParallelEnv):
 
         '''
         leader_dataset = {}
-        with h5py.File(path_leader, 'r') as leader_file:
-            leader_dataset["rewards"] = leader_file['rewards']
-            leader_dataset["observations"] = leader_file['observations']
-            leader_dataset["actions"] = leader_file['actions']
-            leader_dataset["terminals"] = leader_file['terminals']
-            leader_dataset["infos"] = leader_file['infos/goal']
+        # with h5py.File(path_leader, 'r') as leader_file:
+        leader_file = h5py.File(path_leader, 'r')
+        leader_dataset["rewards"] = leader_file['rewards']
+        leader_dataset["observations"] = leader_file['observations']
+        leader_dataset["actions"] = leader_file['actions']
+        leader_dataset["terminals"] = leader_file['terminals']
+        leader_dataset["infos"] = leader_file['infos/goal']
         follower_dataset = {}
-        with h5py.File(path_follower, 'r') as follower_file:
-            follower_dataset["rewards"] = follower_file['rewards']
-            follower_dataset["observations"] = follower_file['observations']
-            follower_dataset["actions"] = follower_file['actions']
-            follower_dataset["terminals"] = follower_file['terminals']
-            follower_dataset["infos"] = follower_file['infos/goal']
+        follower_file = h5py.File(path_follower, 'r')
+        follower_dataset["rewards"] = follower_file['rewards']
+        follower_dataset["observations"] = follower_file['observations']
+        follower_dataset["actions"] = follower_file['actions']
+        follower_dataset["terminals"] = follower_file['terminals']
+        follower_dataset["infos"] = follower_file['infos/goal']
 
-        joint_observations = # Same as individual observations[:-1]
-        joint_goal_info = # Same as individual goal info[:-1], needed because part of state
-        joint_actions = # Combine leader and follower actions into a single action space
-        joint_rewards = # Sum leader and follower rewards across each time step
-        joint_next_observations = # Same as individual next observations[1:]
-        joint_next_goal_info = # Same as individual next goal info[1:], needed because part of state
-        joint_terminals = # all 0 for same length as rest
+        breakpoint()
+        joint_observations = [] # Same as individual observations[:-1]
+        joint_goal_info =[] # Same as individual goal info[:-1], needed because part of state
+        joint_actions =[] # Combine leader and follower actions into a single action space
+        joint_rewards = []# Sum leader and follower rewards across each time step
+        joint_next_observations =[] # Same as individual next observations[1:]
+        joint_next_goal_info =[] # Same as individual next goal info[1:], needed because part of state
+        joint_terminals = [] # all 0 for same length as rest
 
         dummy_data = {"leader": False, "follower": False}
         
