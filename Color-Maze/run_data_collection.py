@@ -49,11 +49,11 @@ def reset_data():
         # 'infos/qvel': [], # Env-specific to the example # TODO for ColorMaze, no need to store extra
     }
 
-def append_data(data, s, a, tgt, done, env_data): # done is not a bool but a tensor because multiple envs
+def append_data(data, s, a, tgt, done, rewards): # done is not a bool but a tensor because multiple envs
     data['observations'].append(s)
     data['actions'].append(a)
     data['terminals'].append(done)
-    data['rewards'].append(0.0)
+    data['rewards'].append(rewards)
     data['infos/goal'].append(tgt)
     # data['infos/qpos'].append(env_data.qpos.ravel().copy())
     # data['infos/qvel'].append(env_data['qvel'])
@@ -74,7 +74,7 @@ def npify(data):
     data['rewards'].shape: (1, ) <- TODO check if this is correct
     data['infos/goal'].shape: (1, 128, 4, 3)
     """
-
+    breakpoint()
     # Reorder all arrays to be in the shape (timesteps x envs, ..) where environment steps are contiguous.
     flattened_data = {}
     for key in data:
@@ -563,8 +563,8 @@ def collect_data(
 
         # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
         # It makes sense to split leader from follower data, because their actions are distinct. 
-        append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, envs[0])
-        append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, envs[0])
+        append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, step_results['leader'].rewards)
+        append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, step_results['follower'].rewards)
 
         # Especially how to handle the dones?
 
