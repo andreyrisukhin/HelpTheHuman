@@ -73,7 +73,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, reward_shaping_fns: list[Callable]=[]):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, asymmetric: bool = False, reward_shaping_fns: list[Callable]=[]):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -101,6 +101,7 @@ class ColorMaze(ParallelEnv):
             self.agents:List[str] = copy(self.possible_agents)
             self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
             self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+        self.asymmetric = asymmetric
 
         self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
 
@@ -295,7 +296,7 @@ class ColorMaze(ParallelEnv):
                 },
                 "follower": {
                     "observation": observation,
-                    "goal_info": goal_info  # TODO make this zeros to bring back info hiding
+                    "goal_info": np.zeros_like(goal_info) if self.asymmetric else goal_info
                 }
             }
 
@@ -438,7 +439,7 @@ class ColorMaze(ParallelEnv):
                 },
                 "follower": {
                     "observation": observation,
-                    "goal_info": goal_info  # TODO make this zeros to bring back info hiding
+                    "goal_info": np.zeros_like(goal_info) if self.asymmetric else goal_info  # TODO make this zeros to bring back info hiding
                 }
             }
         truncateds = terminateds
