@@ -162,17 +162,14 @@ class ColorMaze(ParallelEnv):
         """
         file = h5py.File(path, 'r')
 
-        # TODO: Change 'dataset_name' to actual dataset name from path extraction?
-        rewards = file['dataset_name'].attrs['rewards']
-        observations = file['dataset_name'].attrs['observations']
-        actions = file['dataset_name'].attrs['actions']
-        terminals = file['dataset_name'].attrs['terminals']
-        infos = file['dataset_name'].attrs['infos/goal']
+        rewards = file['rewards']
+        observations = file['observations']
+        actions = file['actions']
+        terminals = file['terminals']
+        infos = file['infos/goal']
 
-        # Close the file when done
         file.close()
 
-        # for agent in agents, 
         dummy_data = {"leader": False, "follower": False}
         
         dataset = { 

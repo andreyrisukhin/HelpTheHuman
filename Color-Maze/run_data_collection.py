@@ -100,8 +100,6 @@ def npify(data):
     # This is a bit tricky because the data is stored in a list of lists, so we need to find the last done in each env and then slice the data accordingly.
 
     # # Get index of the last true in done, for each environment
-    # last_dones_idxs = [np.where(data['terminals'][i])[0][-1] for i in range(len(data['terminals']))]
-    # last_dones_idxs = np.array(last_dones_idxs)
 
 
 
@@ -492,10 +490,17 @@ def collect_data(
 
     if resume_iter:
         # Load checkpoint state to resume run
-        print(f"Resuming from iteration {resume_iter}")
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
-            model.load_state_dict(torch.load(model_path))
+            optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
+            state_dict = torch.load(model_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            model.load_state_dict(patched_state_dict)
     else:
         assert False, "Data collection must use a checkpoint to resume from, specify with resume_iter."
 
@@ -568,7 +573,7 @@ def collect_data(
 
     # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
     if not log_file_name: log_file_name = f"{run_name}_{resume_iter}"
-    dataset_leader = h5py.File(log_file_name + "_leader_testing4.hdf5", 'w') # TODO figure out where files are saved, look at them.
+    dataset_leader = h5py.File(log_file_name + "_leader_testing4.hdf5", 'w')
     dataset_follower = h5py.File(log_file_name + "_follower_testing4.hdf5", 'w')
     leader_data = npify(leader_data)
     follower_data = npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 

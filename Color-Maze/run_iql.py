@@ -6,10 +6,10 @@ import numpy as np
 import torch
 from tqdm import trange
 
-from src_iql_gwthomas.iql import ImplicitQLearning
-from src_iql_gwthomas.policy import GaussianPolicy, DeterministicPolicy
-from src_iql_gwthomas.value_functions import TwinQ, ValueFunction
-from src_iql_gwthomas.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
+from iql_gwthomas.iql import ImplicitQLearning
+from iql_gwthomas.policy import GaussianPolicy, DeterministicPolicy
+from iql_gwthomas.value_functions import TwinQ, ValueFunction
+from iql_gwthomas.util import return_range, set_seed, Log, sample_batch, torchify, evaluate_policy
 
 from color_maze import ColorMaze
 
@@ -136,7 +136,6 @@ def main(args):
 if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--env-name', required=True)
     parser.add_argument('--log-dir', required=True)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--discount', type=float, default=0.99)
