@@ -192,14 +192,16 @@ class ColorMaze(ParallelEnv):
 
         # Same as individual observations[:-1]
         joint_observations = leader_dataset["observations"][:-1]
-        joint_goal_info = leader_dataset["infos"][-1] # Same as individual goal info[:-1], needed because part of state
-        joint_actions = leader_dataset["actions"][:-1] * 4 + follower_dataset["actions"][:-1] # Combine leader and follower actions into a single action space
+        joint_goal_info = leader_dataset["infos"][:-1] # Same as individual goal info[:-1], needed because part of state
+        joint_action_indices = leader_dataset["actions"][:-1] * 4 + follower_dataset["actions"][:-1] # Combine leader and follower actions into a single action space
+        joint_actions = np.zeros((joint_action_indices.shape[0], 16))
+        joint_actions[:, joint_action_indices.astype(np.int64)] = 1
         joint_rewards = leader_dataset["rewards"][:-1] + follower_dataset["rewards"][:-1]   # Sum leader and follower rewards across each time step
         joint_next_observations = leader_dataset["observations"][:-1] # Same as individual
         joint_next_goal_info = leader_dataset["infos"][:-1] # Same as individual
         
         # Always 0 is fine since we will sample randomly in iql, and our data construction is sars'
-        joint_terminals = np.zeros_like(leader_dataset["terminals"])
+        joint_terminals = np.zeros_like(joint_rewards)
 
         joint_dataset = { 
             "observations": joint_observations,
@@ -218,6 +220,9 @@ class ColorMaze(ParallelEnv):
             other_colors.remove(self.goal_block.value)            
             self.goal_block = IDs(self.rng.choice(other_colors))            
             self.goal_switched = True
+
+    def set_seed(self, seed: int):
+        self.seed = seed
             
     def _convert_to_observation(self, blocks:np.ndarray) -> np.ndarray:
         """

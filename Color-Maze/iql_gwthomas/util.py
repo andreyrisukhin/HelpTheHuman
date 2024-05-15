@@ -49,14 +49,14 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 class ConvNet(nn.Module):
-    def __init__(self, observation_space, device, feature_dim: int = 192):
+    def __init__(self, observation_space_shape, device, feature_dim: int = 192):
         super().__init__()
         self.device = device
         self.feature_dim = feature_dim
 
         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
+            layer_init(nn.Conv2d(observation_space_shape[0], 32, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
@@ -155,7 +155,7 @@ def set_seed(seed, env=None):
     np.random.seed(seed)
     random.seed(seed)
     if env is not None:
-        env.seed(seed)
+        env.set_seed(seed)
 
 
 def _gen_dir_name():

@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import gym
-import d4rl
 import numpy as np
 import torch
 from tqdm import trange
@@ -54,14 +52,9 @@ Start with 1M timesteps, this is standard (especially since we are not using img
 
 """
 
-def get_env_and_dataset(seed=None, reward_shaping_fns=[]):
-    """
-    Should we instead be loading checkpoints from a frozen data collection run?
-    'Each task is associated with a fixed offline dataset, which can be obtained with the env.get_dataset() method' implies we should create a dataset from an env and fully trained policy. Does that sound right?
-    """
-    env = ColorMaze(seed, reward_shaping_fns=reward_shaping_fns)
-    dataset = env.load_joint_q_learning_dataset()
-    print('\t Max episode steps:', env._max_episode_steps)
+def get_env_and_dataset(seed, leader_dataset_path, follower_dataset_path):
+    env = ColorMaze(seed)
+    dataset = env.load_joint_q_learning_dataset(leader_dataset_path, follower_dataset_path)
     print('\t',dataset['observations'].shape, dataset['actions'].shape)
     assert 'observations' in dataset, 'Observations not in dataset'
     assert 'actions' in dataset, 'Actions not in dataset'
@@ -73,16 +66,6 @@ def get_env_and_dataset(seed=None, reward_shaping_fns=[]):
     assert dataset['rewards'].shape[0] == N, 'Reward number does not match (%d vs %d)' % (dataset['rewards'].shape[0], N)
     assert dataset['terminals'].shape[0] == N, 'Terminals number does not match (%d vs %d)' % (dataset['terminals'].shape[0], N)
 
-    # Replay buffer (s,a,r,s') (observations, actions, rewards, next_observations)
-
-    # if any(s in env_name for s in ('halfcheetah', 'hopper', 'walker2d')):
-    #     min_ret, max_ret = return_range(dataset, max_episode_steps)
-    #     log(f'Dataset returns have range [{min_ret}, {max_ret}]')
-    #     dataset['rewards'] /= (max_ret - min_ret)
-    #     dataset['rewards'] *= max_episode_steps
-    # elif 'antmaze' in env_name:
-    #     dataset['rewards'] -= 1.
-
     for k, v in dataset.items():
         dataset[k] = torchify(v)
 
@@ -91,11 +74,11 @@ def get_env_and_dataset(seed=None, reward_shaping_fns=[]):
 
 def main(args):
     torch.set_num_threads(1)
-    log = Log(Path(args.log_dir)/args.env_name, vars(args))
-    log(f'Log dir: {log.dir}')
+    # log = Log(Path(args.log_dir)/args.env_name, vars(args))
+    # log(f'Log dir: {log.dir}')
 
-    env, dataset = get_env_and_dataset(log, args.env_name, args.max_episode_steps)
-    obs_dim = dataset['observations'].shape[1]
+    env, dataset = get_env_and_dataset(args.seed, args.leader_dataset_path, args.follower_dataset_path)
+    obs_dim = dataset['observations'].shape[1:]
     act_dim = dataset['actions'].shape[1]   # this assume continuous actions
     set_seed(args.seed, env=env)
 
@@ -104,13 +87,14 @@ def main(args):
     def eval_policy():
         eval_returns = np.array([evaluate_policy(env, policy, args.max_episode_steps) \
                                  for _ in range(args.n_eval_episodes)])
-        normalized_returns = d4rl.get_normalized_score(args.env_name, eval_returns) * 100.0
-        log.row({
+        # normalized_returns = d4rl.get_normalized_score(args.env_name, eval_returns) * 100.0
+        metrics = {
             'return mean': eval_returns.mean(),
             'return std': eval_returns.std(),
-            'normalized return mean': normalized_returns.mean(),
-            'normalized return std': normalized_returns.std(),
-        })
+            # 'normalized return mean': normalized_returns.mean(),
+            # 'normalized return std': normalized_returns.std(),
+        }
+        # log.row(metrics)
 
     iql = ImplicitQLearning(
         qf=TwinQ(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden),
@@ -129,14 +113,16 @@ def main(args):
         if (step+1) % args.eval_period == 0:
             eval_policy()
 
-    torch.save(iql.state_dict(), log.dir/'final.pt')
-    log.close()
+    torch.save(iql.state_dict(), args.log_dir + '/' + 'final.pt')
+    # log.close()
 
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--log-dir', required=True)
+    parser.add_argument('--leader-dataset-path', required=True)
+    parser.add_argument('--follower-dataset-path', required=True)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--discount', type=float, default=0.99)
     parser.add_argument('--hidden-dim', type=int, default=256)

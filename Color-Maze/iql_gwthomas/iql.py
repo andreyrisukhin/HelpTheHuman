@@ -32,15 +32,15 @@ class ImplicitQLearning(nn.Module):
         self.discount = discount
         self.alpha = alpha
 
-    def update(self, observations, goalinfos, actions, next_observations, next_goalinfos, rewards, terminals):
+    def update(self, observations, goal_info, actions, next_observations, next_goal_info, rewards, terminals):
         with torch.no_grad():
-            target_q = self.q_target(observations, goalinfos, actions)
-            next_v = self.vf(next_observations, next_goalinfos)
+            target_q = self.q_target(observations, goal_info, actions)
+            next_v = self.vf(next_observations, next_goal_info)
 
         # v, next_v = compute_batched(self.vf, [observations, next_observations])
 
         # Update value function
-        v = self.vf(observations, goalinfos)
+        v = self.vf(observations, goal_info)
         adv = target_q - v
         v_loss = asymmetric_l2_loss(adv, self.tau)
         self.v_optimizer.zero_grad(set_to_none=True)
@@ -49,10 +49,10 @@ class ImplicitQLearning(nn.Module):
 
         # Update Q function
         targets = rewards + (1. - terminals.float()) * self.discount * next_v.detach()
-        qs = self.qf.both(observations, goalinfos, actions)
-        q_loss = torch.sum(torch.tensor(F.mse_loss(q, targets) for q in qs)) / len(qs)
+        qs = self.qf.both(observations, goal_info, actions)
+        q_loss = sum([F.mse_loss(q, targets) for q in qs]) / len(qs)
         self.q_optimizer.zero_grad(set_to_none=True)
-        q_loss.backward()
+        q_loss.backward()  # type: ignore
         self.q_optimizer.step()
 
         # Update target Q network
@@ -60,7 +60,7 @@ class ImplicitQLearning(nn.Module):
 
         # Update policy
         exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
-        policy_out = self.policy(observations, goalinfos)
+        policy_out = self.policy(observations, goal_info)
         if isinstance(policy_out, torch.distributions.Distribution):
             bc_losses = -policy_out.log_prob(actions)
         elif torch.is_tensor(policy_out):

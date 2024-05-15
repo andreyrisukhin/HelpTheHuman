@@ -30,7 +30,7 @@ class TwinQ(nn.Module):
 class ValueFunction(nn.Module):
     def __init__(self, state_dim, hidden_dim=256, n_hidden=2):
         super().__init__()
-        mlp_dims = [state_dim + 3, *([hidden_dim] * n_hidden), 1]
+        mlp_dims = [hidden_dim + 3, *([hidden_dim] * n_hidden), 1]
         self.v = ConvNetMLP(
             convnet=ConvNet(state_dim, DEFAULT_DEVICE, feature_dim=hidden_dim),
             mlp=mlp(mlp_dims, squeeze_output=True),
