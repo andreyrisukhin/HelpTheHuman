@@ -75,7 +75,7 @@ def get_env_and_dataset(seed, leader_dataset_path, follower_dataset_path):
 def main(args):
     if args.wandb:
         import wandb
-        wandb.init(entity='kavel', project='help-human', name=args.run_name)
+        wandb.init(entity='kavel', project='help-the-human', name=args.run_name)
     torch.set_num_threads(1)
     # log = Log(Path(args.log_dir)/args.env_name, vars(args))
     # log(f'Log dir: {log.dir}')
@@ -114,7 +114,12 @@ def main(args):
     )
 
     for step in trange(args.n_steps):
-        iql.update(**sample_batch(dataset, args.batch_size))
+        v_loss, q_loss, policy_loss = iql.update(**sample_batch(dataset, args.batch_size))
+        metrics = {'v_loss' : v_loss, 'q_loss' : q_loss, 'policy_loss': policy_loss}
+        metrics['timesteps'] = step * args.batch_size
+        if args.wandb:
+             wandb.log(metrics, step=step)
+
         if (step+1) % args.eval_period == 0:
             eval_policy(step)
 

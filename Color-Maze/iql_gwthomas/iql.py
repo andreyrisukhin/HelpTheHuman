@@ -73,3 +73,5 @@ class ImplicitQLearning(nn.Module):
         policy_loss.backward()
         self.policy_optimizer.step()
         self.policy_lr_schedule.step()
+
+        return v_loss.detach().cpu(), q_loss.detach().cpu(), policy_loss.detach().cpu()
