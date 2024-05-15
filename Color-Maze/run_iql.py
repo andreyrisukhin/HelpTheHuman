@@ -73,6 +73,9 @@ def get_env_and_dataset(seed, leader_dataset_path, follower_dataset_path):
 
 
 def main(args):
+    if args.wandb:
+        import wandb
+        wandb.init(entity='kavel', project='help-human', name=args.run_name)
     torch.set_num_threads(1)
     # log = Log(Path(args.log_dir)/args.env_name, vars(args))
     # log(f'Log dir: {log.dir}')
@@ -84,7 +87,7 @@ def main(args):
 
     policy = DeterministicPolicy(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden)
 
-    def eval_policy():
+    def eval_policy(step):
         eval_returns = np.array([evaluate_policy(env, policy, args.max_episode_steps) \
                                  for _ in range(args.n_eval_episodes)])
         # normalized_returns = d4rl.get_normalized_score(args.env_name, eval_returns) * 100.0
@@ -94,7 +97,9 @@ def main(args):
             # 'normalized return mean': normalized_returns.mean(),
             # 'normalized return std': normalized_returns.std(),
         }
-        # log.row(metrics)
+        metrics["timesteps"] = step * args.batch_size
+        if args.wandb:
+            wandb.log(metrics, step=step)
 
     iql = ImplicitQLearning(
         qf=TwinQ(obs_dim, act_dim, hidden_dim=args.hidden_dim, n_hidden=args.n_hidden),
@@ -111,7 +116,7 @@ def main(args):
     for step in trange(args.n_steps):
         iql.update(**sample_batch(dataset, args.batch_size))
         if (step+1) % args.eval_period == 0:
-            eval_policy()
+            eval_policy(step)
 
     torch.save(iql.state_dict(), args.log_dir + '/' + 'final.pt')
     # log.close()
@@ -123,6 +128,8 @@ if __name__ == '__main__':
     parser.add_argument('--log-dir', required=True)
     parser.add_argument('--leader-dataset-path', required=True)
     parser.add_argument('--follower-dataset-path', required=True)
+    parser.add_argument('--wandb', type=bool, required=True)
+    parser.add_argument('--run-name', type=str, default='None')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--discount', type=float, default=0.99)
     parser.add_argument('--hidden-dim', type=int, default=256)

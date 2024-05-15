@@ -273,9 +273,9 @@ class ColorMaze(ParallelEnv):
         """Reset the environment to a starting point."""
         if seed is not None:
             self.seed = seed
+            self.rng = np.random.default_rng(seed=self.seed)
         else:
-            self.seed = 42
-        self.rng = np.random.default_rng(seed=self.seed)
+            self.rng = np.random.default_rng()
 
         if options is None:
             options = {}

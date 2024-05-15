@@ -134,14 +134,18 @@ def sample_batch(dataset, batch_size):
 
 
 def evaluate_policy(env, policy, max_episode_steps, deterministic=True):
-    obs = env.reset()
+    obs, infos = env.reset()
     total_reward = 0.
     for _ in range(max_episode_steps):
         with torch.no_grad():
-            action = policy.act(torchify(obs), deterministic=deterministic).cpu().numpy()
-        next_obs, reward, done, info = env.step(action)
-        total_reward += reward
-        if done:
+            observation = torchify(obs['leader']['observation']).unsqueeze(0)
+            goal_info = torchify(obs['leader']['goal_info']).unsqueeze(0)
+            action = np.argmax(policy.act(observation, goal_info, deterministic=deterministic).cpu().numpy())
+            leader_action = action // 4
+            follower_action = action % 4
+        next_obs, reward, terminateds, truncateds, info = env.step({"leader": leader_action, "follower": follower_action})
+        total_reward += reward['leader'] + reward['follower']
+        if terminateds['leader']:
             break
         else:
             obs = next_obs
