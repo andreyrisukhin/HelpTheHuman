@@ -128,7 +128,7 @@ def step(
         num_steps: int,
         batch_size: int,
         minibatch_size: int,
-        seed: int,
+        seeds: list[int],
         share_observation_tensors: bool = True
 ) -> Tuple[dict[str, StepData], int]:
     """
@@ -177,7 +177,7 @@ def step(
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
 
     if share_observation_tensors:
         next_observation = np.array([list(obs_dict.values())[0]["observation"] for obs_dict in next_observation_dicts])
@@ -323,6 +323,7 @@ def collect_data(
     num_iterations = total_timesteps // batch_size
 
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
+    env_seeds = [seed + i for i in range(num_envs)]
     envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
@@ -375,7 +376,7 @@ def collect_data(
             num_steps=num_steps_per_rollout,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
-            seed=seed,
+            seeds=env_seeds,
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
 
@@ -419,6 +420,9 @@ def collect_data(
 
         if debug_print:
             print(f"iter {iteration}: {metrics}")
+
+        for i in range(len(envs)):
+            env_seeds[i] += len(envs)
 
         # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
         # It makes sense to split leader from follower data, because their actions are distinct. 
