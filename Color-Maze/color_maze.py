@@ -72,7 +72,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[]):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[]):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
