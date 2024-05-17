@@ -77,7 +77,8 @@ def npify(data):
     """
     # Squeeze the leading 1 dimension
     for key in data:
-        data[key] = np.squeeze(data[key], axis=0)
+        # Squeezes all axis of length 1 (but there should only be one leading 1 axis, so it should be safe to remove it)
+        data[key] = np.squeeze(data[key], axis=None)
     """
     data['observations'].shape: (128, 4, 5, 32, 32)
     data['actions'].shape: (128, 4)
@@ -226,6 +227,9 @@ def step(
         if any('leader' not in terminated.keys() for terminated in terminated_dicts):
             breakpoint()
         
+        # convert next_observation_dics to compact representation
+        # next_observation_dicts = convert_to_compact(next_observation_dicts)
+        
         next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
@@ -243,6 +247,12 @@ def step(
         next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
+
+        # converts the sparse channel observation representation into a compact dense one where
+        # each block color is represented by a number. So we're simply storing the (x,y) and color of each block and leader + follower
+        # def convert_to_compact(observation_dicts):
+        
+            
 
     # explained_var = {}
     # acc_losses = {agent: 0 for agent in models}
@@ -325,8 +335,6 @@ def collect_data(
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
     env_seeds = [seed + i for i in range(num_envs)]
     envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-
-    # TODO call reset once for each env 
 
     # Observation and action spaces are the same for leader and follower
     leader_obs_space = envs[0].observation_spaces['leader']
@@ -411,7 +419,6 @@ def collect_data(
         for i in range(len(envs)):
             env_seeds[i] += len(envs)
 
-        # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
         # It makes sense to split leader from follower data, because their actions are distinct. 
         append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, step_results['leader'].rewards)
         append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, step_results['follower'].rewards)
