@@ -22,6 +22,7 @@ from pettingzoo import ParallelEnv
 
 from color_maze import ColorMaze
 from color_maze import ColorMazeRewards
+from run_ppo import ActorCritic
 
 import h5py
 
@@ -49,17 +50,30 @@ def reset_data():
         # 'infos/qvel': [], # Env-specific to the example # TODO for ColorMaze, no need to store extra
     }
 
-def append_data(data, s, a, tgt, done:bool, env_data):
+def append_data(data, s, a, tgt, done, rewards): # done is not a bool but a tensor because multiple envs
     data['observations'].append(s)
     data['actions'].append(a)
     data['terminals'].append(done)
-    data['rewards'].append(0.0)
+    data['rewards'].append(rewards)
     data['infos/goal'].append(tgt)
     # data['infos/qpos'].append(env_data.qpos.ravel().copy())
     # data['infos/qvel'].append(env_data['qvel'])
-    
-    if 1 in done:
-        breakpoint()
+
+def initialize_hdf5(file_name, leader_data, follower_data):
+    with h5py.File(file_name, 'a') as dataset:
+        for key in leader_data:
+            data_shape = leader_data[key][0].shape  # Assuming leader_data[key] is a list of arrays
+            dataset.create_dataset(key, shape=(0,) + data_shape, maxshape=(None,) + data_shape, compression='gzip')
+    return h5py.File(file_name, 'a')
+
+def append_to_hdf5(file, data):
+    for key in data:
+        dataset = file[key]
+        new_data = np.array(data[key])
+        current_size = dataset.shape[0]
+        new_size = current_size + new_data.shape[0]
+        dataset.resize((new_size,) + dataset.shape[1:])
+        dataset[current_size:new_size] = new_data
 
 def npify(data):
     # Convert all dict lists to numpy arrays
@@ -74,17 +88,26 @@ def npify(data):
     data['observations'].shape: (1, 128, 4, 5, 32, 32)
     data['actions'].shape: (1, 128, 4)
     data['terminals'].shape: (1, 128, 4)
-    data['rewards'].shape: (1, ) <- TODO check if this is correct
+    data['rewards'].shape: (1, 128, 4)
     data['infos/goal'].shape: (1, 128, 4, 3)
     """
-
+    # Squeeze the leading 1 dimension
+    for key in data:
+        data[key] = np.squeeze(data[key], axis=0)
+    """
+    data['observations'].shape: (128, 4, 5, 32, 32)
+    data['actions'].shape: (128, 4)
+    data['terminals'].shape: (128, 4)
+    data['rewards'].shape: (128, 4)
+    data['infos/goal'].shape: (128, 4, 3)
+    """
     # Reorder all arrays to be in the shape (timesteps x envs, ..) where environment steps are contiguous.
     flattened_data = {}
     for key in data:
-        if data[key].ndim > 3:
-            flattened_data[key] = np.concatenate(data[key], axis=3) # TODO this has a dim bug
-        else:
-            flattened_data[key] = data[key]
+        flattened_data[key] = np.concatenate(data[key], axis=0) # We concatenate environments together.
+
+    # assert flattened_data['observations'].shape == (128 * 4, 5, 32, 32)
+
     return flattened_data
     
     """
@@ -103,8 +126,6 @@ def npify(data):
     # This is a bit tricky because the data is stored in a list of lists, so we need to find the last done in each env and then slice the data accordingly.
 
     # # Get index of the last true in done, for each environment
-    # last_dones_idxs = [np.where(data['terminals'][i])[0][-1] for i in range(len(data['terminals']))]
-    # last_dones_idxs = np.array(last_dones_idxs)
 
 
 
@@ -115,157 +136,6 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
-class ActorCritic(nn.Module):
-    def __init__(self, observation_space, action_space, device):
-        super().__init__()
-        self.lstm_hidden_size = 192
-        self.device = device
-
-        # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
-        self.conv_network = nn.Sequential(
-            layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
-            nn.LeakyReLU(),
-            layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
-            nn.LeakyReLU(),
-            layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
-            nn.LeakyReLU(),
-        ).to(device)
-        self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(43264, 192)),
-            nn.Tanh(),
-            layer_init(nn.Linear(192, 192)),
-            nn.Tanh(),
-        ).to(device)
-        # self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
-        self.policy_network = nn.Sequential(
-            layer_init(nn.Linear(self.lstm_hidden_size, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, action_space.n), std=0.01),
-        ).to(device)
-        self.value_network = nn.Sequential(
-            layer_init(nn.Linear(192, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
-        ).to(device)
-
-    def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-        batch_size = x.size(0)
-
-        # Apply conv network in parallel on each sequence slice
-        features = self.conv_network(x)
-
-        # Flatten convolution output channels into linear input
-        # New shape: (batch_size, flattened_size)
-        features = features.flatten(start_dim=1)
-
-        # Append one-hot reward encoding
-        # features = torch.cat((features, goal_info), dim=1)
-        features = self.feature_linear(features)
-
-        # # Pass through LSTM; add singular sequence length dimension for LSTM input
-        # features = features.reshape(batch_size, 1, -1)
-        # if prev_hidden_and_cell_states is not None:
-            # prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-        # features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
-
-        # Grab all batches and remove sequence length dimension
-        # features: (batch_size, 1, feature_size)
-        # last_timestep_features: (batch_size, feature_size)
-        last_timestep_features = features  #[:, -1, ...].squeeze(1)
-        return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
-
-    def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-        return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
-
-    def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None, sampling_temperature: float = 1.0):
-        logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
-        probs = Categorical(logits=logits)
-        if action is None:
-            sampling_probs = Categorical(logits=logits / sampling_temperature)
-            action = sampling_probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
-
-
-# Full network, commented out to match checkpoint
-# class ActorCritic(nn.Module):
-#     def __init__(self, observation_space, action_space, device):
-#         super().__init__()
-#         self.lstm_hidden_size = 192
-#         self.device = device
-
-#         # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
-#         self.conv_network = nn.Sequential(
-#             layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=3, padding=0)),
-#             nn.LeakyReLU(),
-#             layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0)),
-#             nn.LeakyReLU(),
-#             layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)),
-#             nn.LeakyReLU(),
-#         ).to(device)
-#         self.feature_linear = nn.Sequential(
-#             layer_init(nn.Linear(64*6*6 + 3, 192)),
-#             nn.Tanh(),
-#         ).to(device)
-#         self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
-#         self.policy_network = nn.Sequential(
-#             layer_init(nn.Linear(self.lstm_hidden_size, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, action_space.n), std=0.01),
-#         ).to(device)
-#         self.value_network = nn.Sequential(
-#             layer_init(nn.Linear(192, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, 64)),
-#             nn.Tanh(),
-#             layer_init(nn.Linear(64, 1), std=1.0),
-#         ).to(device)
-
-#     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-#         batch_size = x.size(0)
-
-#         # Apply conv network in parallel on each sequence slice
-#         features = self.conv_network(x)
-
-#         # Flatten convolution output channels into linear input
-#         # New shape: (batch_size, flattened_size)
-#         features = features.flatten(start_dim=1)
-
-#         # Append one-hot reward encoding
-#         features = torch.cat((features, goal_info), dim=1)
-#         features = self.feature_linear(features)
-
-#         # Pass through LSTM; add singular sequence length dimension for LSTM input
-#         features = features.reshape(batch_size, 1, -1)
-#         if prev_hidden_and_cell_states is not None:
-#             prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-#             prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-#             prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-#         features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
-
-#         # Grab all batches and remove sequence length dimension
-#         # features: (batch_size, 1, feature_size)
-#         # last_timestep_features: (batch_size, feature_size)
-#         last_timestep_features = features[:, -1, ...].squeeze(1)
-#         return self.policy_network(last_timestep_features), self.value_network(last_timestep_features), (hidden_states, cell_states)
-
-#     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
-#         return self.forward(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)[1]
-
-#     def get_action_and_value(self, x, goal_info, action=None, prev_hidden_and_cell_states: tuple | None = None):
-#         logits, value, (hidden_states, cell_states) = self(x, goal_info=goal_info, prev_hidden_and_cell_states=prev_hidden_and_cell_states)
-#         probs = Categorical(logits=logits)
-#         if action is None:
-#             action = probs.sample()
-#         return action, probs.log_prob(action), probs.entropy(), value, (hidden_states, cell_states)
-
 
 def step(
         envs: Sequence[ParallelEnv],
@@ -274,7 +144,7 @@ def step(
         num_steps: int,
         batch_size: int,
         minibatch_size: int,
-        seed: int,
+        seeds: list[int],
         share_observation_tensors: bool = True
 ) -> Tuple[dict[str, StepData], int]:
     """
@@ -323,7 +193,7 @@ def step(
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env in envs])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
 
     if share_observation_tensors:
         next_observation = np.array([list(obs_dict.values())[0]["observation"] for obs_dict in next_observation_dicts])
@@ -356,7 +226,7 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, _, value, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
+                action, logprob, _, value, _, (hidden_states, cell_states) = model.get_action_and_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]))
                 step_actions[agent] = action.cpu().numpy()
                 lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
                 lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
@@ -469,6 +339,7 @@ def collect_data(
     num_iterations = total_timesteps // batch_size
 
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
+    env_seeds = [seed + i for i in range(num_envs)]
     envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
 
     # TODO call reset once for each env 
@@ -495,10 +366,17 @@ def collect_data(
 
     if resume_iter:
         # Load checkpoint state to resume run
-        print(f"Resuming from iteration {resume_iter}")
         for agent_name, model in models.items():
             model_path = f'results/{run_name}/{agent_name}_iteration={resume_iter}.pth'
-            model.load_state_dict(torch.load(model_path))
+            optimizer_path = f'results/{run_name}/{agent_name}_optimizer_iteration={resume_iter}.pth'
+            state_dict = torch.load(model_path)
+            patched_state_dict = {}
+            for key in state_dict:
+                if "_orig_mod." in key:
+                    patched_state_dict[key.replace("_orig_mod.", "")] = state_dict[key]
+                else:
+                    patched_state_dict[key] = state_dict[key]
+            model.load_state_dict(patched_state_dict)
     else:
         assert False, "Data collection must use a checkpoint to resume from, specify with resume_iter."
 
@@ -507,6 +385,12 @@ def collect_data(
     leader_data = reset_data()
     follower_data = reset_data()
 
+    # Append to hdf5 files incrementally
+    if not log_file_name: 
+        log_file_name = f"{run_name}_{resume_iter}"
+    leader_file_name = log_file_name + "_leader_testing4.hdf5"
+    follower_file_name = log_file_name + "_follower_testing4.hdf5"
+
     for iteration in tqdm(range(num_iterations), total=num_iterations):
         step_results, num_goals_switched = step(
             envs=envs,
@@ -514,7 +398,7 @@ def collect_data(
             num_steps=num_steps_per_rollout,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
-            seed=seed,
+            seeds=env_seeds,
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
 
@@ -527,8 +411,6 @@ def collect_data(
         ^ different environments may have different length (AR ours do not! But still write general done-based split code)
 
         """
-
-
 
         metrics = {}
         for agent, results in step_results.items(): # type: ignore
@@ -545,40 +427,40 @@ def collect_data(
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
 
-        # Save data collection every iteration
-        observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
-        goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-            # (env, minibatch = bsz / num minibsz, goal_dim)
-        for i in range(observation_states.size(0)):
-            trajectory = observation_states[i].numpy()
-            goal_infos_i = goal_infos[i].numpy()
-            os.makedirs(f'data_collection/{run_name}', exist_ok=True)
-            np.save(f"data_collection/{run_name}/data_collection_{iteration=}_env={i}.npy", trajectory)
-            np.save(f"data_collection/{run_name}/goal_info_{iteration=}_env={i}.npy", goal_infos_i)
-
         if debug_print:
             print(f"iter {iteration}: {metrics}")
 
+        for i in range(len(envs)):
+            env_seeds[i] += len(envs)
+
         # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
         # It makes sense to split leader from follower data, because their actions are distinct. 
-        append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, envs[0])
-        append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, envs[0])
+        append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, step_results['leader'].rewards)
+        append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, step_results['follower'].rewards)
 
-        # Especially how to handle the dones?
+        # Log the data incrementally, because the data may be too large to fit in memory.
+        leader_hdf5 = initialize_hdf5(leader_file_name, leader_data, follower_data)
+        follower_hdf5 = initialize_hdf5(follower_file_name, leader_data, follower_data)
+        # Append the data to HDF5 files
+        append_to_hdf5(leader_hdf5, leader_data)
+        append_to_hdf5(follower_hdf5, follower_data)
+        leader_hdf5.close()
+        follower_hdf5.close()
+        # Clear the in-memory data to free up space
+        for key in leader_data:
+            leader_data[key] = []
+            follower_data[key] = []
 
-    # wandb.log({"Run Table": run_table})
-
-
-    # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
-    if not log_file_name: log_file_name = f"{run_name}_{resume_iter}"
-    dataset_leader = h5py.File(log_file_name + "_leader_testing4", 'w') # TODO figure out where files are saved, look at them.
-    dataset_follower = h5py.File(log_file_name + "_follower_testing4", 'w')
-    leader_data = npify(leader_data)
-    follower_data = npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
-    for key in leader_data:
-        dataset_leader.create_dataset(key, data=leader_data[key], compression='gzip')
-        dataset_follower.create_dataset(key, data=follower_data[key], compression='gzip')
-
+    # # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
+    # if not log_file_name: 
+    #     log_file_name = f"{run_name}_{resume_iter}"
+    # dataset_leader = h5py.File(log_file_name + "_leader_testing4.hdf5", 'w')
+    # dataset_follower = h5py.File(log_file_name + "_follower_testing4.hdf5", 'w')
+    # leader_data = npify(leader_data)
+    # follower_data = npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
+    # for key in leader_data:
+    #     dataset_leader.create_dataset(key, data=leader_data[key], compression='gzip')
+    #     dataset_follower.create_dataset(key, data=follower_data[key], compression='gzip')
 
 if __name__ == '__main__':
     Fire(collect_data)
