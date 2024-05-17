@@ -72,7 +72,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, asymmetric: bool = False, reward_shaping_fns: list[Callable]=[]):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.05, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[]):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -88,6 +88,7 @@ class ColorMaze(ParallelEnv):
         self.prob_block_switch = 2/3 * 1/32 # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
         self.goal_switched = False
         self.block_penalty = 1
+        self.nonstationary = nonstationary
 
         # Agents
         self.leader_only = leader_only
@@ -166,7 +167,7 @@ class ColorMaze(ParallelEnv):
         # return dataset
 
     def _maybe_randomize_goal_block(self):
-        if self.rng.random() < self.prob_block_switch:
+        if self.nonstationary and self.rng.random() < self.prob_block_switch:
             other_colors = list(range(NUM_COLORS))
             other_colors.remove(self.goal_block.value)            
             self.goal_block = IDs(self.rng.choice(other_colors))            
@@ -254,7 +255,8 @@ class ColorMaze(ParallelEnv):
             self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
             self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
         
-        self.goal_block = self.rng.choice(np.array([IDs.RED, IDs.GREEN, IDs.BLUE]))
+        if self.nonstationary:
+            self.goal_block = self.rng.choice(np.array([IDs.RED, IDs.GREEN, IDs.BLUE]))
 
         observation = self._convert_to_observation(self.blocks)
         goal_info = np.zeros(NUM_COLORS)
