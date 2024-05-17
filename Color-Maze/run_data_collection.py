@@ -67,33 +67,19 @@ def npify(data):
         else:
             dtype = np.float32
         data[key] = np.array(data[key], dtype=dtype)
-    # Example had this code, including leading 1 dimension. If error, ensure arrays don't have the leading 1 dimension?        
     """
-    data['observations'].shape: (1, 128, 4, 5, 32, 32)
-    data['actions'].shape: (1, 128, 4)
-    data['terminals'].shape: (1, 128, 4)
-    data['rewards'].shape: (1, 128, 4)
-    data['infos/goal'].shape: (1, 128, 4, 3)
+    data['observations'].shape: (iter, steps, envs, 5, 32, 32)
+    data['actions'].shape: (iter, steps, envs)
+    data['terminals'].shape: (iter, steps, envs)
+    data['rewards'].shape: (iter, steps, envs)
+    data['infos/goal'].shape: (iter, steps, envs, 3)
     """
-    # Squeeze the leading 1 dimension
     for key in data:
-        # Squeezes all axis of length 1 (but there should only be one leading 1 axis, so it should be safe to remove it)
-        data[key] = np.squeeze(data[key], axis=None)
-    """
-    data['observations'].shape: (128, 4, 5, 32, 32)
-    data['actions'].shape: (128, 4)
-    data['terminals'].shape: (128, 4)
-    data['rewards'].shape: (128, 4)
-    data['infos/goal'].shape: (128, 4, 3)
-    """
-    # Reorder all arrays to be in the shape (timesteps x envs, ..) where environment steps are contiguous.
-    flattened_data = {}
-    for key in data:
-        flattened_data[key] = np.concatenate(data[key], axis=0) # We concatenate environments together.
+        # Flatten the iteration, env, and timestep dimensions together
+        transposed = data[key].transpose((0, 2, 1) + tuple(i for i in range(3, data[key].ndim)))
+        data[key] = transposed.reshape((-1,) + transposed.shape[3:])
 
-    # assert flattened_data['observations'].shape == (128 * 4, 5, 32, 32)
-
-    return flattened_data
+    return data
     
     """
     TODO more intelligent splitting based on terminals. Our terminals seem never to be true, but we know when our envs end, so okay?
@@ -283,6 +269,10 @@ def step(
         # b_values = all_values[agent].reshape(-1)
         # b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
         # b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
+
+    for agent in models:
+        # Set dones to true for last step of each env to allow concating them together
+        all_dones[agent][:, -1] = 1
 
     step_result = {
         agent: StepData(
