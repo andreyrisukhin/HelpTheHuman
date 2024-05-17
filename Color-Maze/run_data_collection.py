@@ -261,7 +261,7 @@ def step(
     }
     return step_result, num_goals_switched
 
-# python run_data_collection.py --run_name concat_arch_exp-hinf_ir_bd10_bp4m-10m_giloss02_r128_envs16_nolstm_switch_allgoalinfo_convstride1_seed0 --resume_iter 5000 --log_to_wandb False --total_timesteps 512
+# python run_data_collection.py --run_name concat_arch_exp-hinf_ir_bd10_bp4m-10m_giloss02_r128_envs16_nolstm_switch_allgoalinfo_convstride1_seed0 --resume_iter 39061 --log_to_wandb False --total_timesteps 512
 def collect_data(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
