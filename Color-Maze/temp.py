@@ -1,4 +1,8 @@
 """
+just for pasting and trimming the hdf5 file save incremental code
+"""
+
+"""
 This file is for running a frozen model to collect data for offline RL. Save the data in a hdf5 file (standard for d4rl).
 """
 
@@ -58,7 +62,23 @@ def append_data(data, s, a, tgt, done, rewards): # done is not a bool but a tens
     data['infos/goal'].append(tgt)
     # data['infos/qpos'].append(env_data.qpos.ravel().copy())
     # data['infos/qvel'].append(env_data['qvel'])
-    
+
+def initialize_hdf5(file_name, leader_data, follower_data):
+    with h5py.File(file_name, 'a') as dataset:
+        for key in leader_data:
+            data_shape = leader_data[key][0].shape  # Assuming leader_data[key] is a list of arrays
+            dataset.create_dataset(key, shape=(0,) + data_shape, maxshape=(None,) + data_shape, compression='gzip')
+    return h5py.File(file_name, 'a')
+
+def append_to_hdf5(file, data):
+    for key in data:
+        dataset = file[key]
+        new_data = np.array(data[key])
+        current_size = dataset.shape[0]
+        new_size = current_size + new_data.shape[0]
+        dataset.resize((new_size,) + dataset.shape[1:])
+        dataset[current_size:new_size] = new_data
+
 def npify(data):
     # Convert all dict lists to numpy arrays
     for key in data:
@@ -67,40 +87,50 @@ def npify(data):
         else:
             dtype = np.float32
         data[key] = np.array(data[key], dtype=dtype)
+    # Example had this code, including leading 1 dimension. If error, ensure arrays don't have the leading 1 dimension?        
     """
-    data['observations'].shape: (iter, steps, envs, 5, 32, 32)
-    data['actions'].shape: (iter, steps, envs)
-    data['terminals'].shape: (iter, steps, envs)
-    data['rewards'].shape: (iter, steps, envs)
-    data['infos/goal'].shape: (iter, steps, envs, 3)
+    data['observations'].shape: (1, 128, 4, 5, 32, 32)
+    data['actions'].shape: (1, 128, 4)
+    data['terminals'].shape: (1, 128, 4)
+    data['rewards'].shape: (1, 128, 4)
+    data['infos/goal'].shape: (1, 128, 4, 3)
     """
+    # Squeeze the leading 1 dimension
     for key in data:
-        # Flatten the iteration, env, and timestep dimensions together
-        transposed = data[key].transpose((0, 2, 1) + tuple(i for i in range(3, data[key].ndim)))
-        data[key] = transposed.reshape((-1,) + transposed.shape[3:])
-    return data
-    
-def initialize_hdf5(file_name:str, agent_data, steps_stored:int|None=None):
-    """ Use once at the start of the data collection. """
-    with h5py.File(file_name, 'a') as f:
-        for key in agent_data:
-            data_shape = agent_data[key][0].shape  # Assuming agent_data[key] is a list of arrays
-            f.create_dataset(key, shape=(0,) + data_shape, maxshape=(steps_stored,) + data_shape, compression='gzip')
-    # return h5py.File(file_name, 'a')
+        data[key] = np.squeeze(data[key], axis=0)
+    """
+    data['observations'].shape: (128, 4, 5, 32, 32)
+    data['actions'].shape: (128, 4)
+    data['terminals'].shape: (128, 4)
+    data['rewards'].shape: (128, 4)
+    data['infos/goal'].shape: (128, 4, 3)
+    """
+    # Reorder all arrays to be in the shape (timesteps x envs, ..) where environment steps are contiguous.
+    flattened_data = {}
+    for key in data:
+        flattened_data[key] = np.concatenate(data[key], axis=0) # We concatenate environments together.
 
-def append_to_hdf5(file_name:str, data):
-    """ Use to append data while collecting data.
-        Takes npify'd data."""
-    f = h5py.File(file_name, 'a')
-    for key in data:
-        dataset = f[key]
-        assert isinstance(dataset, h5py.Dataset), f"Expected dataset, got {type(dataset)}" # Mostly to keep typechecker happy
-        new_data = np.array(data[key])
-        current_size = dataset.shape[0]
-        new_size = current_size + new_data.shape[0]
-        dataset.resize((new_size,) + dataset.shape[1:])
-        dataset[current_size:new_size] = new_data
-    f.close()
+    # assert flattened_data['observations'].shape == (128 * 4, 5, 32, 32)
+
+    return flattened_data
+    
+    """
+    TODO more intelligent splitting based on terminals. Our terminals seem never to be true, but we know when our envs end, so okay?
+
+    First, concat by column to split the four envs. Then, split by terminals.
+    """
+
+    # Our goal is to reshape the data into a series where contiguous elements are timesteps in a single env.
+
+
+    # reshape/flatten the data into (#envs x dim) x ... 
+    
+    # TODO discard unfinished envs. Find the last 'done' in an environment, take only up to that and concat this data to the final output.
+    # an unfinished env will have a done=False at the end of the data.
+    # This is a bit tricky because the data is stored in a list of lists, so we need to find the last done in each env and then slice the data accordingly.
+
+    # # Get index of the last true in done, for each environment
+
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -216,9 +246,6 @@ def step(
         if any('leader' not in terminated.keys() for terminated in terminated_dicts):
             breakpoint()
         
-        # convert next_observation_dics to compact representation
-        # next_observation_dicts = convert_to_compact(next_observation_dicts)
-        
         next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
@@ -237,13 +264,35 @@ def step(
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
 
-        # converts the sparse channel observation representation into a compact dense one where
-        # each block color is represented by a number. So we're simply storing the (x,y) and color of each block and leader + follower
-        # def convert_to_compact(observation_dicts):
-                  
-    for agent in models:
-        # Set dones to true for last step of each env to allow concating them together
-        all_dones[agent][:, -1] = 1
+    # explained_var = {}
+    # acc_losses = {agent: 0 for agent in models}
+    # for agent, model in models.items():
+        # bootstrap values if not done
+        # with torch.no_grad():
+        #     next_values = model.get_value(next_observations[agent], next_goal_info[agent], prev_hidden_and_cell_states=(lstm_hidden_states[agent][-1], lstm_cell_states[agent][-1])).reshape(1, -1)
+        #     advantages = torch.zeros_like(all_rewards[agent]).to(model.device)
+        #     lastgaelam = 0
+        #     for t in reversed(range(num_steps)):
+        #         if t == num_steps - 1:
+        #             nextnonterminal = 1 - next_dones[agent]
+        #             nextvalues = next_values
+        #         else:
+        #             nextnonterminal = 1 - all_dones[agent][t + 1]
+        #             nextvalues = all_values[agent][t + 1]
+        #         delta = all_rewards[agent][t] + gamma * nextvalues * nextnonterminal - all_values[agent][t]
+        #         advantages[t] = lastgaelam = delta + gamma * gae_lambda * nextnonterminal * lastgaelam
+        #     returns = advantages + all_values[agent]
+
+        # flatten the batch
+        # b_obs = all_observations[agent].reshape((-1,) + observation_space_shapes[agent])  # (-1, 5, xBoundary, yBoundary)
+        # b_logprobs = all_logprobs[agent].reshape(-1)
+        # b_goal_info = all_goal_info[agent].reshape((-1,) + goal_info_shapes[agent])
+        # b_actions = all_actions[agent].reshape((-1,) + action_space_shapes[agent])
+        # b_advantages = advantages.reshape(-1)
+        # b_returns = returns.reshape(-1)
+        # b_values = all_values[agent].reshape(-1)
+        # b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
+        # b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
 
     step_result = {
         agent: StepData(
@@ -256,12 +305,15 @@ def step(
             dones=all_dones[agent].cpu(),
             action_log_probs=all_logprobs[agent].cpu(),
             values=all_values[agent].cpu(),
+            # loss=acc_losses[agent] / ppo_update_epochs,
+            # explained_var=explained_var[agent],
         )
         for agent in models
     }
     return step_result, num_goals_switched
 
-# python run_data_collection.py --run_name concat_arch_exp-hinf_ir_bd10_bp4m-10m_giloss02_r128_envs16_nolstm_switch_allgoalinfo_convstride1_seed0 --resume_iter 5000 --log_to_wandb False --total_timesteps 512
+# concat_arch_exp-hinf_ir_bd10_bp4m-10m_giloss02_r128_envs16_nolstm_switch_allgoalinfo_convstride1_seed0
+# python run_data_collection.py --run_name hinf_ir_r128_envs16_nolstm_noswitch_nogoalinfo_convstride1_seed0 --resume_iter 5000 --log_to_wandb False --total_timesteps 512
 def collect_data(
         run_name: str | None = None,
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
@@ -276,6 +328,15 @@ def collect_data(
         log_to_wandb: bool = True,
         seed: int = 42,
 ):
+    # if resume_iter:
+    #     assert resume_wandb_id is not None, "Must provide W&B ID to resume from checkpoint"
+
+    # if log_to_wandb:
+    #     wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
+
+    # columns = ['Run Name', 'Leader Avg Reward per Timestep', 'Follower Avg Reward per Timestep', 'Leader Explained Var', 'Follower Explained Var', 'Num Goals Switched', 'Timesteps']
+    # run_table = wandb.Table(columns=columns)
+
     torch.manual_seed(seed)
 
     batch_size = num_envs * num_steps_per_rollout
@@ -285,6 +346,8 @@ def collect_data(
     penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
     env_seeds = [seed + i for i in range(num_envs)]
     envs = [ColorMaze() for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+
+    # TODO call reset once for each env 
 
     # Observation and action spaces are the same for leader and follower
     leader_obs_space = envs[0].observation_spaces['leader']
@@ -343,6 +406,17 @@ def collect_data(
             seeds=env_seeds,
             share_observation_tensors=(model_devices['leader'] == model_devices['follower'])
         )
+
+        # TODO consider collecting data from only one env at a time. Multiple has following challenges:
+        """ s,a -> e -> s',d,r
+        e1   [t1][  t2  ][ t3 ]
+        e2   [ t4 ][t5]
+        e3
+        e4
+        ^ different environments may have different length (AR ours do not! But still write general done-based split code)
+
+        """
+
         metrics = {}
         for agent, results in step_results.items(): # type: ignore
             metrics[agent] = {
@@ -364,19 +438,34 @@ def collect_data(
         for i in range(len(envs)):
             env_seeds[i] += len(envs)
 
+        # TODO fix the arguments here to match ColorMaze returns. Based on https://github.com/Farama-Foundation/D4RL/blob/master/scripts/generation/generate_maze2d_datasets.py
         # It makes sense to split leader from follower data, because their actions are distinct. 
         append_data(leader_data, step_results['leader'].observations, step_results['leader'].actions, step_results['leader'].goal_info, step_results['leader'].dones, step_results['leader'].rewards)
         append_data(follower_data, step_results['follower'].observations, step_results['follower'].actions, step_results['follower'].goal_info, step_results['follower'].dones, step_results['follower'].rewards)
 
-        np_leader_data = npify(leader_data)
-        np_follower_data = npify(follower_data)
+        # Log the data incrementally, because the data may be too large to fit in memory.
+        leader_hdf5 = initialize_hdf5(leader_file_name, leader_data, follower_data)
+        follower_hdf5 = initialize_hdf5(follower_file_name, leader_data, follower_data)
+        # Append the data to HDF5 files
+        append_to_hdf5(leader_hdf5, leader_data)
+        append_to_hdf5(follower_hdf5, follower_data)
+        leader_hdf5.close()
+        follower_hdf5.close()
+        # Clear the in-memory data to free up space
+        for key in leader_data:
+            leader_data[key] = []
+            follower_data[key] = []
 
-        # Save the data to a hdf5 file incrementally.
-        if iteration % 10 == 0:
-            append_to_hdf5(leader_file_name, np_leader_data)
-            append_to_hdf5(follower_file_name, np_follower_data)
-            leader_data = reset_data()
-            follower_data = reset_data()
+    # # BlockingIOError: [Errno 11] Unable to synchronously create file (unable to lock file, errno = 11, error message = 'Resource temporarily unavailable')
+    # if not log_file_name: 
+    #     log_file_name = f"{run_name}_{resume_iter}"
+    # dataset_leader = h5py.File(log_file_name + "_leader_testing4.hdf5", 'w')
+    # dataset_follower = h5py.File(log_file_name + "_follower_testing4.hdf5", 'w')
+    # leader_data = npify(leader_data)
+    # follower_data = npify(follower_data) # Can update npify to flatten the data into (#envs x dim) x ..., 
+    # for key in leader_data:
+    #     dataset_leader.create_dataset(key, data=leader_data[key], compression='gzip')
+    #     dataset_follower.create_dataset(key, data=follower_data[key], compression='gzip')
 
 if __name__ == '__main__':
     Fire(collect_data)
