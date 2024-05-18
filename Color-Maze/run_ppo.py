@@ -388,6 +388,7 @@ def train(
         leader_only: bool = False,  # If True, configures the environment with a single agent.
         warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
+        use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
         compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
         # Env params
         block_density: float = 0.05,  # Density of blocks populating the environment grid.
@@ -459,14 +460,15 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
-    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
+    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     if leader_only:
         models = {'leader': leader}
         optimizers = {'leader': leader_optimizer}
     else:
         follower_obs_space = envs[0].observation_spaces['follower']
-        follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
+        # follower uses LSTM if asymmetric is true
+        follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower'], use_lstm=use_lstm) # type: ignore
         follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
         models = {'leader': leader, 'follower': follower}
         optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
