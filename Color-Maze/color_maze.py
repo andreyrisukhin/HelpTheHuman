@@ -17,21 +17,28 @@ from dataclasses import dataclass
 from enum import Enum
 from copy import copy
 
+
 class Moves(Enum):
     UP = 0
     DOWN = 1
     LEFT = 2
     RIGHT = 3
+
+
 class Boundary(Enum):
     # Invariant: bounds are inclusive
     x1 = 0
     y1 = 0
     x2 = 31
     y2 = 31
+
+
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 NUM_COLORS = 3
 NUM_MOVES = 4
+
+
 class IDs(Enum):
     RED = 0
     BLUE = 1
@@ -39,11 +46,13 @@ class IDs(Enum):
     LEADER = 3
     FOLLOWER = 4
 
+
 @dataclass 
 class Agent:
     '''Agent class to store x and y coordinates of the agent. Automatically creates __init__ and __repr__ methods.'''
     x: int
     y: int
+
 
 class ColorMazeRewards():
     '''Class to organize reward functions for the ColorMaze environment.
@@ -54,21 +63,17 @@ class ColorMazeRewards():
     
     Invariant [!]: All reward shaping functions take args: agents dictionary, rewards dictionary; and return the rewards dictionary.'''
 
-    def __init__(self, close_threshold:int=10, timestep_expiry:int=500) -> None:
+    def __init__(self, close_threshold:int=10) -> None:
         self.close_threshold = close_threshold
-        self.timestep_expiry = timestep_expiry
 
     def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards, step:int):
         '''Penalize the follower if it is close to the leader.'''
-        if step > self.timestep_expiry:
-            return rewards
         leader = agents["leader"]
         follower = agents["follower"]
         if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
-            rewards["follower"] -= 1 # TODO could shape this curve, rather than Relu.
+            rewards["follower"] -= 1
         return rewards
 
-        # TODO inspect, check whether follower learns to not move at all
 
 class ColorMaze(ParallelEnv):
     

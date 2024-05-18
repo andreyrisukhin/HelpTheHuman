@@ -394,6 +394,9 @@ def train(
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
         full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
         asymmetric: bool = False,  # True if the follower should NOT get goal info
+        reward_shaping_func: str | None = None,  # If provided, the name of reward shaping function to use. Must correspond to a method under ColorMazeRewards.
+        reward_shaping_timesteps: int = 0,  # If reward_shaping_func, the number of timesteps to keep reward shaping active for
+        reward_shaping_close_threshold: int = 0,  # If reward_shaping_func, the threshold at which two agents are determined to be "close"
         # PPO params
         total_timesteps: int = 500000,  # Total number of environment timesteps to run the PPO training loop for
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -433,12 +436,13 @@ def train(
     minibatch_size = batch_size // num_minibatches
     num_iterations = total_timesteps // batch_size
 
-    # TODO conditionally use reward shaping based on args
-    penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
-    # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-    envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
+    # Conditionally use reward shaping based on args
+    if reward_shaping_func:
+        reward_shaping_cls = ColorMazeRewards(reward_shaping_close_threshold)
+        reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping]) for _ in range(num_envs)]
+    else:
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)]
 
     if torch.cuda.device_count() > 1:
         model_devices = {
@@ -528,6 +532,10 @@ def train(
         if resume_iter and iteration <= resume_iter:
             continue
 
+        if reward_shaping_func and iteration * batch_size > reward_shaping_timesteps:
+            # Disable reward shaping if timestep threshold is exceeded
+            envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)]
+
         block_penalty = get_block_penalty(iteration * batch_size)
         step_results, num_goals_switched = step(
             envs=envs,
@@ -571,9 +579,10 @@ def train(
             wandb.log(metrics, step=iteration)
 
         if save_data_iters and iteration % save_data_iters == 0:
-            observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
+            # Transpose observations so the dims are (env, step, ...observation_shape)
+            observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore 
+            # Transpose goal_infos into shape: (env, step, goal_dim)
             goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-                # (env, minibatch = bsz / num minibsz, goal_dim)
             for i in range(observation_states.size(0)):
                 trajectory = observation_states[i].numpy()
                 goal_infos_i = goal_infos[i].numpy()
