@@ -243,8 +243,6 @@ def step(
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
-        if any('leader' not in terminated.keys() for terminated in terminated_dicts):
-            breakpoint()
         
         next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
@@ -492,7 +490,6 @@ def train(
         if warmstart_leader_path:
             print(f"Warmstarting leader model from {warmstart_leader_path}")
             state_dict = torch.load(warmstart_leader_path)
-            breakpoint()
             patched_state_dict = {}
             for key in state_dict:
                 if "_orig_mod." in key:

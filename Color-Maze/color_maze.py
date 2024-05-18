@@ -196,7 +196,6 @@ class ColorMaze(ParallelEnv):
         into the internal env state representation.
         *Overrides* [!] the current env state with the given observation.
         """
-        # breakpoint()
         leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
         follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
@@ -365,13 +364,13 @@ class ColorMaze(ParallelEnv):
         # Formatting by agent for the return types
 
         if (self.agents == []):
-            breakpoint()
+            assert False
         terminateds = {a: termination for a in self.agents}        
         if termination:
             self.agents = []
 
         if ('leader' not in terminateds.keys()):
-            breakpoint()
+            assert False
 
         # Maybe update goal block
         self.goal_switched = False
