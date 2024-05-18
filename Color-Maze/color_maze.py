@@ -75,6 +75,14 @@ class ColorMazeRewards():
             rewards["follower"] -= self.penalty
         return rewards
 
+    def penalize_leader_close_to_follower(self, agents: dict[str, Agent], rewards):
+        '''Penalize the leader if it is close to the follower.'''
+        leader = agents["leader"]
+        follower = agents["follower"]
+        if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
+            rewards["leader"] -= self.penalty
+        return rewards
+
 
 class ColorMaze(ParallelEnv):
     def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[]):
@@ -145,6 +153,8 @@ class ColorMaze(ParallelEnv):
         self._MAX_TIMESTEPS = 1000
 
         # Reward shaping
+        if len(reward_shaping_fns) > 0:
+            assert not self.leader_only, "Reward shaping is not supported for leader_only mode."
         self.reward_shaping_fns = reward_shaping_fns
 
     def _maybe_randomize_goal_block(self):
