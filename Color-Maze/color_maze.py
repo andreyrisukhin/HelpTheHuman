@@ -67,7 +67,7 @@ class ColorMazeRewards():
         self.close_threshold = close_threshold
         self.penalty = abs(penalty)
 
-    def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards):
+    def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards, **kwargs):
         '''Penalize the follower if it is close to the leader.'''
         leader = agents["leader"]
         follower = agents["follower"]
@@ -75,7 +75,7 @@ class ColorMazeRewards():
             rewards["follower"] -= self.penalty
         return rewards
 
-    def penalize_leader_close_to_follower(self, agents: dict[str, Agent], rewards):
+    def penalize_leader_close_to_follower(self, agents: dict[str, Agent], rewards, **kwargs):
         '''Penalize the leader if it is close to the follower.'''
         leader = agents["leader"]
         follower = agents["follower"]
@@ -89,10 +89,10 @@ class ColorMazeRewards():
         '''d=0 -> reward=0'''
         '''d=1 -> reward=1/2'''
         '''d=2 -> reward=1/3''' # If harmonic reward does not work, try something steeper.
-        distance = abs(x1 - x2) + abs(y1 - y2)
+        distance = np.abs(x1 - x2) + np.abs(y1 - y2)
         return 1 / (distance + 1)
 
-    def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs):
+    def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs, incorrect_penalty_coef: float = 1, **kwargs):
         '''Reward the leader and follower based on their proximity to goal and incorrect blocks. Inspired by (+), (-) electric potential.'''
         incorrect_discount_factor = 0.5 # There are twice as many incorrect as correct blocks.
         discount_factor = 0.2 # The most rewarding* spot (surrounded by 4) is less rewarding than one goal block pickup.
@@ -100,15 +100,25 @@ class ColorMazeRewards():
         leader = agents["leader"]
         follower = agents["follower"]
         goal_positions = np.argwhere(blocks[goal_block.value] == 1) # Returns an array of [x,y] arrays. # TODO check that x, y are not being misinterpreted. #.flatten()
-        for x,y in goal_positions:
-            rewards["leader"] += self._harmonic_distance_reward(leader.x, leader.y, x, y) * discount_factor
-            rewards["follower"] += self._harmonic_distance_reward(follower.x, follower.y, x, y) * discount_factor
+        goal_positions_x = goal_positions[:, 0]
+        goal_positions_y = goal_positions[:, 1]
+        leader_x_rep = np.full_like(goal_positions_x, leader.x)
+        leader_y_rep = np.full_like(goal_positions_y, leader.y)
+        follower_x_rep = np.full_like(goal_positions_x, follower.x)
+        follower_y_rep = np.full_like(goal_positions_y, follower.y)
+        rewards["leader"] += np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, goal_positions_x, goal_positions_y) * discount_factor)
+        rewards["follower"] += np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, goal_positions_x, goal_positions_y) * discount_factor)
         
         # Now, get incorrect positions (all other slices of 'blocks' except goal_block == 1)
         incorrect_positions = np.argwhere(np.any(blocks[:goal_block.value] == 1, axis=0) | np.any(blocks[goal_block.value + 1:] == 1, axis=0))
-        for x,y in incorrect_positions:
-            rewards["leader"] -= self._harmonic_distance_reward(leader.x, leader.y, x, y) * incorrect_discount_factor * discount_factor
-            rewards["follower"] -= self._harmonic_distance_reward(follower.x, follower.y, x, y) * incorrect_discount_factor * discount_factor
+        incorrect_positions_x = incorrect_positions[:, 0]
+        incorrect_positions_y = incorrect_positions[:, 1]
+        leader_x_rep = np.full_like(incorrect_positions_x, leader.x)
+        leader_y_rep = np.full_like(incorrect_positions_y, leader.y)
+        follower_x_rep = np.full_like(incorrect_positions_x, follower.x)
+        follower_y_rep = np.full_like(incorrect_positions_y, follower.y)
+        rewards["leader"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
+        rewards["follower"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
 
         return rewards
 
@@ -373,8 +383,8 @@ class ColorMaze(ParallelEnv):
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, self.blocks, self.goal_block)
-            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, self.blocks, self.goal_block)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty)
 
         # Check termination conditions
         termination = False
