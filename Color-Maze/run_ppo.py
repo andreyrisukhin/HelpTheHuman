@@ -441,7 +441,7 @@ def train(
     if reward_shaping_func:
         reward_shaping_cls = ColorMazeRewards(close_threshold=reward_shaping_close_threshold, penalty=reward_shaping_penalty)
         reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping]) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob) for _ in range(num_envs)]
     else:
         envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob) for _ in range(num_envs)]
 
