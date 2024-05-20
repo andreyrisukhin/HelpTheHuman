@@ -1,4 +1,3 @@
-import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -41,12 +40,13 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, observation_space, action_space, device):
+    def __init__(self, observation_space, action_space, device, use_lstm=False):
         super().__init__()
-        self.lstm_hidden_size = 192
+        self.hidden_size = 192
         self.device = device
+        self.use_lstm = use_lstm
 
-        # Network structure from "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
+        # Initial network structure referenced "Emergent Social Learning via Multi-agent Reinforcement Learning": https://arxiv.org/abs/2010.00581
         self.conv_network = nn.Sequential(
             layer_init(nn.Conv2d(observation_space.shape[0], 32, kernel_size=3, stride=1, padding=0)),
             nn.LeakyReLU(),
@@ -65,9 +65,10 @@ class ActorCritic(nn.Module):
             layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
         ).to(device)
-        # self.lstm = nn.LSTM(self.lstm_hidden_size, self.lstm_hidden_size, batch_first=True).to(device)
+        if self.use_lstm:
+            self.lstm = nn.LSTM(self.hidden_size, self.hidden_size, batch_first=True).to(device)
         self.policy_network = nn.Sequential(
-            layer_init(nn.Linear(self.lstm_hidden_size, 64)),
+            layer_init(nn.Linear(self.hidden_size, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
@@ -89,7 +90,7 @@ class ActorCritic(nn.Module):
     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
         batch_size = x.size(0)
 
-        # Apply conv network in parallel on each sequence slice
+        # Apply conv network
         features = self.conv_network(x)
 
         # Flatten convolution output channels into linear input
@@ -101,23 +102,24 @@ class ActorCritic(nn.Module):
         features = torch.cat((features, goal_info), dim=1)
         features = self.feature_linear(features)
 
-        # # Pass through LSTM; add singular sequence length dimension for LSTM input
-        # features = features.reshape(batch_size, 1, -1)
-        # if prev_hidden_and_cell_states is not None:
-            # prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.lstm_hidden_size)
-            # prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
-        # features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
+        if self.use_lstm:
+            # Pass through LSTM; add singular sequence length dimension for LSTM input
+            features = features.reshape(batch_size, 1, -1)
+            if prev_hidden_and_cell_states is not None:
+                prev_hidden_states = prev_hidden_and_cell_states[0].reshape(1, batch_size, self.hidden_size)
+                prev_cell_states = prev_hidden_and_cell_states[1].reshape(1, batch_size, self.hidden_size)
+                prev_hidden_and_cell_states = (prev_hidden_states, prev_cell_states)
+            features, (hidden_states, cell_states) = self.lstm(features, prev_hidden_and_cell_states)
+            # features: (batch_size, 1, feature_size) --> (batch_size, feature_size)
+            features = features[:, -1, ...].squeeze(1)
+        else:
+            hidden_states, cell_states = torch.zeros((batch_size, self.hidden_size), device=self.device), torch.zeros((batch_size, self.hidden_size), device=self.device)
 
-        # Grab all batches and remove sequence length dimension
-        # features: (batch_size, 1, feature_size)
-        # last_timestep_features: (batch_size, feature_size)
-        last_timestep_features = features  #[:, -1, ...].squeeze(1)
         return (
-            self.policy_network(last_timestep_features),
-            self.value_network(last_timestep_features),
-            self.auxiliary_goalinfo_network(last_timestep_features),
-            (torch.zeros((batch_size, self.lstm_hidden_size), device=self.device), torch.zeros((batch_size, self.lstm_hidden_size), device=self.device))
+            self.policy_network(features),
+            self.value_network(features),
+            self.auxiliary_goalinfo_network(features),
+            (hidden_states, cell_states)
         )
 
     def get_value(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
@@ -191,16 +193,10 @@ def step(
     all_entropies = {agent: np.zeros((num_steps, len(envs))) for agent in models}
 
     # num_steps + 1 so that indexing by step gives the *input* states at that step
-    lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
-    lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].lstm_hidden_size)).to(models[agent].device) for agent in models}
+    lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
+    lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
 
     next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
-    # next_observation_dicts, _ = list(zip(*[env.get_obs_and_goal_info() for env in envs])) # type: ignore # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...] 
-    # ACtually the reset is fine! Can just change len of rollout to test if learning for longer matters. 
-
-
-    # get_obs_and_goal_info() causes KeyError: 'leader' in L201. 
-    # breakpoint()
 
     next_observations = {
         agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
@@ -247,8 +243,6 @@ def step(
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
-        if any('leader' not in terminated.keys() for terminated in terminated_dicts):
-            breakpoint()
         
         next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
@@ -260,13 +254,6 @@ def step(
             all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
             all_shared_rewards[agent][step] = next_shared_rewards[agent].reshape(-1)
 
-
-        # if (step == 105):
-        #     breakpoint()
-        # if any('leader' not in terminated.keys() for terminated in terminated_dicts):
-        #     breakpoint()
-        #     # Consistently on step 106. Aha, but step 106 happens multiple times. Does this only break when env rollout (old reset) occurs?
-            # TODO understand where the 106 error comes from, and how related to env rollout.
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
         
@@ -302,29 +289,13 @@ def step(
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = all_values[agent].reshape(-1)
-        b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.lstm_hidden_size))
-        b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.lstm_hidden_size))
+        b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.hidden_size))
+        b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.hidden_size))
 
         # Optimizing the policy and value network
         b_inds = np.arange(batch_size)
         clipfracs = []
         for epoch in range(ppo_update_epochs):
-            # TODO i think ESL-MARL is shuffling while preserving some trajectory ordering,
-            # and they give the hidden state for only the initial observation for each mini-trajectory.
-            """
-            Each parameter update consists of 20 sequential mini-batch
-            updates with the same batch of rollouts (128 episodes).
-            Each mini-batch consists of a uniform random sample of
-            trajectories from that batch. Hidden states are stored alongside 
-            the trajectories, and the initial hidden state for each
-            mini-batch trajectory is retrieved from these stored values.
-            Hidden states and advantage values for the entire batch are
-            re-calculated every 2 mini-batches. The mini-batch iteration
-            ceases if KL(𝜋, 𝜋𝑟𝑜𝑙𝑙𝑜𝑢𝑡) exceeds a target of 0.01. If for any
-            mini-batch the estimated divergence exceeds a hard limit of
-            0.03, the update terminates and all changes to the network
-            parameters and optimizer state are reverted.
-            """
             np.random.shuffle(b_inds)
             for start in range(0, batch_size, minibatch_size):
                 end = start + minibatch_size
@@ -369,7 +340,6 @@ def step(
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 # Auxiliary goalinfo prediction loss
-                # TODO if removing follower goalinfo, do this only for the leader
                 ce_loss_func = torch.nn.CrossEntropyLoss()
                 goalinfo_loss = ce_loss_func(goalinfo_logits, b_goal_info.long()[mb_inds].argmax(dim=-1).view(-1))
 
@@ -410,43 +380,48 @@ def step(
 
 
 def train(
-        run_name: str | None = None,
+        run_name: str | None = None,  # Run name for saving results and for weights & biases logging
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
-        leader_only: bool = False,
-        warmstart_leader_path: str | None = None,
-        warmstart_follower_path: str | None = None,
-        compile: bool = False,
+        leader_only: bool = False,  # If True, configures the environment with a single agent.
+        warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
+        warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
+        use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
+        compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
         # Env params
-        block_density: float = 0.05,
+        block_density: float = 0.05,  # Density of blocks populating the environment grid.
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
         full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
         asymmetric: bool = False,  # True if the follower should NOT get goal info
         block_swap_prob: float = 50.0,  # Probability of swapping the block positions
+        reward_shaping_func: str | None = None,  # If provided, the name of reward shaping function to use. Must correspond to a method under ColorMazeRewards.
+        reward_shaping_timesteps: int = 0,  # If reward_shaping_func, the number of timesteps to keep reward shaping active for
+        reward_shaping_close_threshold: int = 0,  # If reward_shaping_func, the threshold at which two agents are determined to be "close"
+        reward_shaping_penalty: int = 0,  # If reward_shaping_func, the penalty applied if the shaping condition is violated
         # PPO params
-        total_timesteps: int = 500000,
+        total_timesteps: int = 500000,  # Total number of environment timesteps to run the PPO training loop for
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
-        num_envs: int = 4,
-        num_steps_per_rollout: int = 128,
+        num_envs: int = 4,  # Number of environments to collect rollouts in parallel
+        num_steps_per_rollout: int = 128,  # Number of steps in each rollout
         gamma: float = 0.99,  # discount factor
         gae_lambda: float = 0.95,  # lambda for general advantage estimation
-        num_minibatches: int = 4,
-        ppo_update_epochs: int = 4,
+        num_minibatches: int = 4,  # Number of minibatches to split each batch of rollouts into for updates
+        ppo_update_epochs: int = 4,  # Number of epochs to do weight updates for each minibatch
         norm_advantage: bool = True,  # toggle advantage normalization
         clip_param: float = 0.2,  # surrogate clipping coefficient
         clip_vloss: bool = True,  # toggle clipped loss for value function
-        entropy_coef: float = 0.01,
-        value_func_coef: float = 0.5,
+        entropy_coef: float = 0.01,  # entropy loss coefficient
+        value_func_coef: float = 0.5,  # value function loss coefficient
         max_grad_norm: float = 0.5,  # max gradnorm for gradient clipping
         target_kl: float | None = None,  # target KL divergence threshold
-        sampling_temperature: float = 1.0,
-        goalinfo_loss_coef: float = 0.0,
+        sampling_temperature: float = 1.0,  # temperature to sample with for rollout collection
+        goalinfo_loss_coef: float = 0.0,  # coefficient for supervised goal info cross-entropy loss
         # Config params
-        save_data_iters: int = 100, # Save data every 100 iterations from num_iterations, calculated below
-        checkpoint_iters: int = 0,
-        debug_print: bool = False,
-        log_to_wandb: bool = True,
-        seed: int = 42,
+        save_data_iters: int = 100, # Save data every save_data_iters iterations from num_iterations, calculated below
+        checkpoint_iters: int = 0,  # Checkpoint model and optimizer states every checkpoint_iters iterations
+        debug_print: bool = False,  # Whether to enable debug mode
+        log_to_wandb: bool = True,  # Whether to enable logging to weights and biases
+        seed: int = 42,  # Random seed
 ):
     if resume_iter:
         assert resume_wandb_id is not None, "Must provide W&B ID to resume from checkpoint"
@@ -462,16 +437,13 @@ def train(
     minibatch_size = batch_size // num_minibatches
     num_iterations = total_timesteps // batch_size
 
-    # TODO conditionally use reward shaping based on args
-    penalty_steps = num_steps_per_rollout // 4 # 512 // 4 = 128
-    # penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    penalize_follower_close_to_leader = ColorMazeRewards(close_threshold=10, timestep_expiry=128).penalize_follower_close_to_leader
-    # envs = [ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader]) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-    envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob) for _ in range(num_envs)] # To add reward shaping functions, init as ColorMaze(reward_shaping_fns=[penalize_follower_close_to_leader])
-
-    # TODO call reset once for each env 
-
-
+    # Conditionally use reward shaping based on args
+    if reward_shaping_func:
+        reward_shaping_cls = ColorMazeRewards(close_threshold=reward_shaping_close_threshold, penalty=reward_shaping_penalty)
+        reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping]) for _ in range(num_envs)]
+    else:
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob) for _ in range(num_envs)]
 
     if torch.cuda.device_count() > 1:
         model_devices = {
@@ -487,14 +459,15 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
-    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'])  # type: ignore
+    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     if leader_only:
         models = {'leader': leader}
         optimizers = {'leader': leader_optimizer}
     else:
         follower_obs_space = envs[0].observation_spaces['follower']
-        follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower']) # type: ignore
+        # follower uses LSTM if asymmetric is true
+        follower = ActorCritic(follower_obs_space['observation'], act_space, model_devices['follower'], use_lstm=use_lstm) # type: ignore
         follower_optimizer = optim.Adam(follower.parameters(), lr=learning_rate, eps=1e-5)
         models = {'leader': leader, 'follower': follower}
         optimizers = {'leader': leader_optimizer, 'follower': follower_optimizer}
@@ -518,7 +491,6 @@ def train(
         if warmstart_leader_path:
             print(f"Warmstarting leader model from {warmstart_leader_path}")
             state_dict = torch.load(warmstart_leader_path)
-            breakpoint()
             patched_state_dict = {}
             for key in state_dict:
                 if "_orig_mod." in key:
@@ -543,7 +515,7 @@ def train(
 
     if compile:
         for name, model in models.items():
-            models[name] = torch.compile(model, mode='reduce-overhead')
+            models[name] = torch.compile(model, mode='reduce-overhead') # type: ignore
 
     assert no_block_penalty_until <= full_block_penalty_at
     if full_block_penalty_at == 0:
@@ -560,6 +532,10 @@ def train(
     for iteration in tqdm(range(num_iterations), total=num_iterations):
         if resume_iter and iteration <= resume_iter:
             continue
+
+        if reward_shaping_func and iteration * batch_size > reward_shaping_timesteps:
+            # Disable reward shaping if timestep threshold is exceeded
+            envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)]
 
         block_penalty = get_block_penalty(iteration * batch_size)
         step_results, num_goals_switched = step(
@@ -604,9 +580,10 @@ def train(
             wandb.log(metrics, step=iteration)
 
         if save_data_iters and iteration % save_data_iters == 0:
-            observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore # Transpose so the dims are (env, step, ...observation_shape)
+            # Transpose observations so the dims are (env, step, ...observation_shape)
+            observation_states = step_results['leader'].observations.transpose(0, 1)  # type: ignore 
+            # Transpose goal_infos into shape: (env, step, goal_dim)
             goal_infos = step_results['leader'].goal_info.transpose(0, 1) # type: ignore
-                # (env, minibatch = bsz / num minibsz, goal_dim)
             for i in range(observation_states.size(0)):
                 trajectory = observation_states[i].numpy()
                 goal_infos_i = goal_infos[i].numpy()

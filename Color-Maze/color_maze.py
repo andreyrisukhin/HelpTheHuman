@@ -17,21 +17,28 @@ from dataclasses import dataclass
 from enum import Enum
 from copy import copy
 
+
 class Moves(Enum):
     UP = 0
     DOWN = 1
     LEFT = 2
     RIGHT = 3
+
+
 class Boundary(Enum):
     # Invariant: bounds are inclusive
     x1 = 0
     y1 = 0
     x2 = 31
     y2 = 31
+
+
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
 NUM_COLORS = 3
 NUM_MOVES = 4
+
+
 class IDs(Enum):
     RED = 0
     BLUE = 1
@@ -39,11 +46,13 @@ class IDs(Enum):
     LEADER = 3
     FOLLOWER = 4
 
+
 @dataclass 
 class Agent:
     '''Agent class to store x and y coordinates of the agent. Automatically creates __init__ and __repr__ methods.'''
     x: int
     y: int
+
 
 class ColorMazeRewards():
     '''Class to organize reward functions for the ColorMaze environment.
@@ -54,21 +63,26 @@ class ColorMazeRewards():
     
     Invariant [!]: All reward shaping functions take args: agents dictionary, rewards dictionary; and return the rewards dictionary.'''
 
-    def __init__(self, close_threshold:int=10, timestep_expiry:int=500) -> None:
+    def __init__(self, close_threshold: int = 10, penalty: float = 0.1) -> None:
         self.close_threshold = close_threshold
-        self.timestep_expiry = timestep_expiry
+        self.penalty = abs(penalty)
 
-    def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards, step:int):
+    def penalize_follower_close_to_leader(self, agents: dict[str, Agent], rewards):
         '''Penalize the follower if it is close to the leader.'''
-        if step > self.timestep_expiry:
-            return rewards
         leader = agents["leader"]
         follower = agents["follower"]
         if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
-            rewards["follower"] -= 1 # TODO could shape this curve, rather than Relu.
+            rewards["follower"] -= self.penalty
         return rewards
 
-        # TODO inspect, check whether follower learns to not move at all
+    def penalize_leader_close_to_follower(self, agents: dict[str, Agent], rewards):
+        '''Penalize the leader if it is close to the follower.'''
+        leader = agents["leader"]
+        follower = agents["follower"]
+        if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
+            rewards["leader"] -= self.penalty
+        return rewards
+
 
 class ColorMaze(ParallelEnv):
     
@@ -109,7 +123,6 @@ class ColorMaze(ParallelEnv):
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
         self.block_density = block_density
         
-        # whatever channel represents the reward block will have 1s where ever the b
         self._n_channels = self.blocks.shape[0] + 2  # len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
         board_space = Box(low=0, high=1, shape=(self._n_channels, xBoundary, yBoundary), dtype=np.int32)
         self._observation_space = board_space
@@ -141,30 +154,9 @@ class ColorMaze(ParallelEnv):
         self._MAX_TIMESTEPS = 1000
 
         # Reward shaping
+        if len(reward_shaping_fns) > 0:
+            assert not self.leader_only, "Reward shaping is not supported for leader_only mode."
         self.reward_shaping_fns = reward_shaping_fns
-
-    # def get_qlearnng_dataset(self):
-        # """
-        # Return observations, actions, rewards, terminals, timeouts, infos, next observations. s, a, r, s' plus terminal, timeout, info.
-        # """
-        # dataset = { # TODO fix this, replace with actual self . blocks
-            # # "observations": np.zeros((1, xBoundary, yBoundary)),
-            # # "actions": np.zeros((1, NUM_MOVES)),
-            # # "rewards": np.zeros(1),
-            # # "terminals": np.zeros(1),
-            # # "timeouts": np.zeros(1),
-            # # "infos": np.zeros(1),
-            # # "next_observations": np.zeros((1, xBoundary, yBoundary))
-            # "observations": self.observation_spaces,
-            # "actions": self.action_space,
-            # "rewards": self.,
-            # "terminals": np.zeros(1),
-            # "timeouts": np.zeros(1),
-            # "infos": np.zeros(1),
-            # "next_observations": np.zeros((1, xBoundary, yBoundary))
-        # }
-
-        # return dataset
 
     def _maybe_randomize_goal_block(self):
         if self.nonstationary and self.rng.random() < self.prob_block_switch:
@@ -205,11 +197,10 @@ class ColorMaze(ParallelEnv):
         into the internal env state representation.
         *Overrides* [!] the current env state with the given observation.
         """
-        # breakpoint()
         leader_places = observation[IDs.LEADER.value].reshape((xBoundary, yBoundary))
         follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
-        # assert follower_places.sum() == 1  # removed assertion because if the env was run with leader_only, this would sum to 0
+        assert self.leader_only or follower_places.sum() == 1
         self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
         assert self.blocks.shape == (NUM_COLORS, xBoundary, yBoundary)
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
@@ -285,7 +276,7 @@ class ColorMaze(ParallelEnv):
         infos = {a: {"individual_reward": 0} for a in self.agents}
         return observations, infos
 
-    def _consume_and_spawn_block(self, color_idx:int, x:int, y:int, blocks:np.ndarray) -> np.ndarray:
+    def _consume_and_spawn_block(self, color_idx: int, x: int, y: int, blocks: np.ndarray):
         blocks[color_idx, x, y] = 0
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
@@ -299,7 +290,6 @@ class ColorMaze(ParallelEnv):
             blocks[color_idx, x, y] = 1
             return blocks
         assert False, "No cell with value 0 found to update."
-        return blocks # Makes the typechecker happy, TODO handle this more cleanly
 
     def step(self, actions):
         """
@@ -330,20 +320,6 @@ class ColorMaze(ParallelEnv):
             follower_action = actions["follower"]
             self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
 
-        # Make action masks
-        # Not used atm; would need to be adapted to allow self.leader_only if uncommented
-        # leader_action_mask = np.ones(NUM_MOVES)
-        # follower_action_mask = np.ones(NUM_MOVES)
-        # for action_mask, x, y in zip([leader_action_mask, follower_action_mask], [self.leader.x, self.follower.x], [self.leader.y, self.follower.y]):
-            # if x == Boundary.x1.value:
-                # action_mask[Moves.LEFT.value] = 0  # cant go left
-            # if x == Boundary.x2.value:
-                # action_mask[Moves.RIGHT.value] = 0  # cant go right
-            # if y == Boundary.y1.value:
-                # action_mask[Moves.DOWN.value] = 0  # cant go down
-            # if y == Boundary.y2.value:
-                # action_mask[Moves.UP.value] = 0  # cant go up
-
         # Give rewards
         individual_rewards = {}
         shared_reward = 0
@@ -362,14 +338,14 @@ class ColorMaze(ParallelEnv):
                         shared_reward -= self.block_penalty
                         individual_rewards[agent] -= self.block_penalty
                         self.blocks = self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
-                        break # Can't step on two non-rewarding blocks at once
+                        break  # Can't step on two non-rewarding blocks at once
 
         rewards = {agent: shared_reward for agent in self.agents}
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, self.timestep)
-            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, self.timestep)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards)
 
         # Check termination conditions
         termination = False
@@ -389,13 +365,13 @@ class ColorMaze(ParallelEnv):
         # Formatting by agent for the return types
 
         if (self.agents == []):
-            breakpoint()
+            assert False
         terminateds = {a: termination for a in self.agents}        
         if termination:
             self.agents = []
 
         if ('leader' not in terminateds.keys()):
-            breakpoint()
+            assert False
 
         # Maybe update goal block
         self.goal_switched = False
@@ -420,7 +396,7 @@ class ColorMaze(ParallelEnv):
                 },
                 "follower": {
                     "observation": observation,
-                    "goal_info": np.zeros_like(goal_info) if self.asymmetric else goal_info  # TODO make this zeros to bring back info hiding
+                    "goal_info": np.zeros_like(goal_info) if self.asymmetric else goal_info
                 }
             }
         truncateds = terminateds
