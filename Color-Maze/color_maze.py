@@ -95,6 +95,8 @@ class ColorMazeRewards():
     def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs):
         '''Reward the leader and follower based on their proximity to goal and incorrect blocks. Inspired by (+), (-) electric potential.'''
         incorrect_discount_factor = 0.5 # There are twice as many incorrect as correct blocks.
+        discount_factor = 0.2 # The most rewarding* spot (surrounded by 4) is less rewarding than one goal block pickup.
+        # *Technically, surrounded by infinitely many goal blocks is most rewarding. Do the math to tune later, this is unlikely and we have 48 hours.
         leader = agents["leader"]
         follower = agents["follower"]
         goal_positions = np.argwhere(blocks[goal_block.value] == 1) # Returns an array of [x,y] arrays. # TODO check that x, y are not being misinterpreted. #.flatten()
