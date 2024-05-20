@@ -82,6 +82,33 @@ class ColorMazeRewards():
         if abs(leader.x - follower.x) + abs(leader.y - follower.y) < self.close_threshold:
             rewards["leader"] -= self.penalty
         return rewards
+    
+    def _harmonic_distance_reward(self, x1, y1, x2, y2):
+        '''Reward curve: iff agent not at block, 1/(distance + 1). Else, 0 (regular reward handles intersection).'''
+        '''distance = abs(x_goal - x_agent) + abs(y_goal - y_agent)'''
+        '''d=0 -> reward=0'''
+        '''d=1 -> reward=1/2'''
+        '''d=2 -> reward=1/3''' # If harmonic reward does not work, try something steeper.
+        distance = abs(x1 - x2) + abs(y1 - y2)
+        return 1 / (distance + 1)
+
+    def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs):
+        '''Reward the leader and follower based on their proximity to goal and incorrect blocks. Inspired by (+), (-) electric potential.'''
+        incorrect_discount_factor = 0.5 # There are twice as many incorrect as correct blocks.
+        leader = agents["leader"]
+        follower = agents["follower"]
+        goal_positions = np.argwhere(blocks[goal_block.value] == 1) # Returns an array of [x,y] arrays. # TODO check that x, y are not being misinterpreted. #.flatten()
+        for x,y in goal_positions:
+            rewards["leader"] += self._harmonic_distance_reward(leader.x, leader.y, x, y)
+            rewards["follower"] += self._harmonic_distance_reward(follower.x, follower.y, x, y)
+        
+        # Now, get incorrect positions (all other slices of 'blocks' except goal_block == 1)
+        incorrect_positions = np.argwhere(np.any(blocks[:goal_block.value] == 1, axis=0) | np.any(blocks[goal_block.value + 1:] == 1, axis=0))
+        for x,y in incorrect_positions:
+            rewards["leader"] -= self._harmonic_distance_reward(leader.x, leader.y, x, y) * incorrect_discount_factor
+            rewards["follower"] -= self._harmonic_distance_reward(follower.x, follower.y, x, y) * incorrect_discount_factor
+
+        return rewards
 
 
 class ColorMaze(ParallelEnv):
@@ -344,8 +371,8 @@ class ColorMaze(ParallelEnv):
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards)
-            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, self.blocks, self.goal_block)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, self.blocks, self.goal_block)
 
         # Check termination conditions
         termination = False
