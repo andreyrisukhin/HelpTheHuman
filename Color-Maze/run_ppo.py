@@ -393,7 +393,7 @@ def train(
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
         full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
         asymmetric: bool = False,  # True if the follower should NOT get goal info
-        block_swap_prob: float = 50.0,  # Probability of swapping the block positions
+        block_swap_prob: float = 2/3 * 1/32,  # Probability of swapping the block positions
         reward_shaping_func: str | None = None,  # If provided, the name of reward shaping function to use. Must correspond to a method under ColorMazeRewards.
         reward_shaping_timesteps: int = 0,  # If reward_shaping_func, the number of timesteps to keep reward shaping active for
         reward_shaping_close_threshold: int = 0,  # If reward_shaping_func, the threshold at which two agents are determined to be "close"
