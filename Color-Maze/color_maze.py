@@ -15,7 +15,7 @@ import numpy as np
 from typing import Callable, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
-from copy import copy
+from copy import copy, deepcopy
 
 
 class Moves(Enum):
@@ -381,6 +381,16 @@ class ColorMaze(ParallelEnv):
 
         rewards = {agent: shared_reward for agent in self.agents}
 
+        # Get infos
+        # Copy before applying reward shaping so we log the rewards without potential field, etc.
+        infos = {
+            a: {
+                "individual_reward": deepcopy(individual_rewards[a]),
+                "shared_reward": deepcopy(rewards[a]),
+            } 
+            for a in self.agents
+        }
+
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
             rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty)
@@ -391,15 +401,6 @@ class ColorMaze(ParallelEnv):
         if self.timestep > self._MAX_TIMESTEPS:
             termination = True
         self.timestep += 1
-
-        # Get infos
-        infos = {
-            a: {
-                "individual_reward": individual_rewards[a],
-                "shared_reward": rewards[a],
-            } 
-            for a in self.agents
-        }
 
         # Formatting by agent for the return types
 
