@@ -101,14 +101,14 @@ class ColorMazeRewards():
         follower = agents["follower"]
         goal_positions = np.argwhere(blocks[goal_block.value] == 1) # Returns an array of [x,y] arrays. # TODO check that x, y are not being misinterpreted. #.flatten()
         for x,y in goal_positions:
-            rewards["leader"] += self._harmonic_distance_reward(leader.x, leader.y, x, y)
-            rewards["follower"] += self._harmonic_distance_reward(follower.x, follower.y, x, y)
+            rewards["leader"] += self._harmonic_distance_reward(leader.x, leader.y, x, y) * discount_factor
+            rewards["follower"] += self._harmonic_distance_reward(follower.x, follower.y, x, y) * discount_factor
         
         # Now, get incorrect positions (all other slices of 'blocks' except goal_block == 1)
         incorrect_positions = np.argwhere(np.any(blocks[:goal_block.value] == 1, axis=0) | np.any(blocks[goal_block.value + 1:] == 1, axis=0))
         for x,y in incorrect_positions:
-            rewards["leader"] -= self._harmonic_distance_reward(leader.x, leader.y, x, y) * incorrect_discount_factor
-            rewards["follower"] -= self._harmonic_distance_reward(follower.x, follower.y, x, y) * incorrect_discount_factor
+            rewards["leader"] -= self._harmonic_distance_reward(leader.x, leader.y, x, y) * incorrect_discount_factor * discount_factor
+            rewards["follower"] -= self._harmonic_distance_reward(follower.x, follower.y, x, y) * incorrect_discount_factor * discount_factor
 
         return rewards
 
