@@ -15,7 +15,10 @@ if __name__ == "__main__":
     print(env.goal_block)
     score = 0
 
-    while env.agents:
+    steps_per_rollout = 128
+    step = 0
+
+    while env.agents and step < steps_per_rollout:
         actions = {
             'leader': manual_policy_1(observations[env.agents[0]], agent=env.agents[0]),
             'follower': manual_policy_2(observations[env.agents[1]], agent=env.agents[1])
@@ -26,6 +29,6 @@ if __name__ == "__main__":
 
         os.system('cls' if os.name == 'nt' else 'clear')
         env.render()
-        print(f'Score: {score} | Goal: {env.goal_block} | Reward Shaping: {env.reward_shaping_fns}') # The reward functions will probably not print nicely. TODO print their names.
-
+        print(f'Score: {score} | Goal: {env.goal_block} | Step: {step}/{steps_per_rollout} | Reward Shaping: {env.reward_shaping_fns}') # The reward functions will probably not print nicely. TODO print their names.
+        step += 1
     env.close()
