@@ -155,10 +155,6 @@ def step(
         block_penalty: float,
         sampling_temperature: float = 1.0,
         goalinfo_loss_coef: float = 0,
-<<<<<<< HEAD
-        use_frozen_checkpoint_leader: bool = False,
-=======
->>>>>>> 1fc634ab84ea76f55991a534686cbd25bf5685c1
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
