@@ -53,6 +53,14 @@ class Agent:
     x: int
     y: int
 
+    x_limit_low: int
+    x_limit_high: int
+    y_limit_low: int
+    y_limit_high: int
+
+    def is_legal(self, x:int, y:int) -> bool:
+        '''Check if the agent is within the (inclusive!) bounds of the environment.'''
+        return self.x_limit_low <= x <= self.x_limit_high and self.y_limit_low <= y <= self.y_limit_high
 
 class ColorMazeRewards():
     '''Class to organize reward functions for the ColorMaze environment.
@@ -125,7 +133,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, is_unique_hemispheres_env:bool=False):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -143,17 +151,26 @@ class ColorMaze(ParallelEnv):
         self.block_penalty = 1
         self.nonstationary = nonstationary
 
+        self.is_unique_hemispheres_env = is_unique_hemispheres_env 
+        # When True: leader can only exist in left env side, x in [0, xBoundary // 2]. Follower x in [xBoundary // 2, xBoundary].
+        if self.is_unique_hemispheres_env:
+            self.leader_x_max_boundary = xBoundary // 2
+            self.follower_x_min_boundary = xBoundary // 2
+        else:
+            self.leader_x_max_boundary = Boundary.x2.value
+            self.follower_x_min_boundary = Boundary.x1.value
+
         # Agents
         self.leader_only = leader_only
         if leader_only:
             self.possible_agents:List[str] = ["leader"]
             self.agents:List[str] = copy(self.possible_agents)
-            self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
+            self.leader = Agent(Boundary.x1.value, Boundary.y1.value, x_limit_low=Boundary.x1.value, x_limit_high=self.leader_x_max_boundary, y_limit_low=Boundary.y1.value, y_limit_high=Boundary.y2.value)
         else:
             self.possible_agents:List[str] = ["leader", "follower"]
             self.agents:List[str] = copy(self.possible_agents)
-            self.leader = Agent(Boundary.x1.value, Boundary.y1.value)
-            self.follower = Agent(Boundary.x2.value, Boundary.y2.value)
+            self.leader = Agent(Boundary.x1.value, Boundary.y1.value, x_limit_low=Boundary.x1.value, x_limit_high=self.leader_x_max_boundary, y_limit_low=Boundary.y1.value, y_limit_high=Boundary.y2.value)
+            self.follower = Agent(Boundary.x2.value, Boundary.y2.value, x_limit_low=self.follower_x_min_boundary, x_limit_high=Boundary.x2.value, y_limit_low=Boundary.y1.value, y_limit_high=Boundary.y2.value)
         self.asymmetric = asymmetric
 
         self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
@@ -267,13 +284,13 @@ class ColorMaze(ParallelEnv):
         self.goal_switched = False
 
         # Randomize initial locations
-        self.leader.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+        self.leader.x = self.rng.integers(Boundary.x1.value, self.leader_x_max_boundary, endpoint=True)
         self.leader.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
         if not self.leader_only:
             self.follower.x = self.leader.x
             self.follower.y = self.leader.y
             while (self.follower.x, self.follower.y) == (self.leader.x, self.leader.y):
-                self.follower.x = self.rng.integers(Boundary.x1.value, Boundary.x2.value, endpoint=True)
+                self.follower.x = self.rng.integers(self.follower_x_min_boundary, Boundary.x2.value, endpoint=True)
                 self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
         self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
@@ -334,18 +351,18 @@ class ColorMaze(ParallelEnv):
         """
         Takes an action for all agents in environment, and assigns rewards.
         """
-        def _move(x, y, action):
+        def _move(x, y, action, agent:Agent):
             """
             Always call _move for the leader first in a given timestep. The leader is favored in collisions with follower. 
             """
             new_x, new_y = x, y
-            if action == Moves.UP.value and y < Boundary.y2.value:
+            if action == Moves.UP.value and y < agent.y_limit_high:
                 new_y += 1
-            elif action == Moves.DOWN.value and y > Boundary.y1.value:
+            elif action == Moves.DOWN.value and y > agent.y_limit_low:
                 new_y -= 1
-            elif action == Moves.LEFT.value and x > Boundary.x1.value:
+            elif action == Moves.LEFT.value and x > agent.x_limit_low:
                 new_x -= 1
-            elif action == Moves.RIGHT.value and x < Boundary.x2.value:
+            elif action == Moves.RIGHT.value and x < agent.x_limit_high:
                 new_x += 1
     
             if (new_x, new_y) == (self.leader.x, self.leader.y):
@@ -354,10 +371,10 @@ class ColorMaze(ParallelEnv):
                 return new_x, new_y
         
         leader_action = actions["leader"]
-        self.leader.x, self.leader.y = _move(self.leader.x, self.leader.y, leader_action)
+        self.leader.x, self.leader.y = _move(self.leader.x, self.leader.y, leader_action, self.leader)
         if not self.leader_only:
             follower_action = actions["follower"]
-            self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action)
+            self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action, self.follower)
 
         # Give rewards
         individual_rewards = {}
