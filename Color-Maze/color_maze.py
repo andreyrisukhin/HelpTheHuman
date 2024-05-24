@@ -306,15 +306,15 @@ class ColorMaze(ParallelEnv):
 
             left_block_positions = self.rng.choice(left_position_choices, size=(3, n_blocks_each_color_left_hemisphere), replace=False)
             right_block_positions = self.rng.choice(right_position_choices, size=(3, n_blocks_each_color_right_hemisphere), replace=False)
-            left_block_positions = np.insert(left_block_positions, 0, [[0], [1], [2]], axis=1)
-            right_block_positions = np.insert(right_block_positions, 0, [[0], [1], [2]], axis=1)
+            left_block_positions = np.insert(left_block_positions, [0], [[[0]], [[1]], [[2]]], axis=2).reshape(-1, 3)
+            right_block_positions = np.insert(right_block_positions, [0], [[[0]], [[1]], [[2]]], axis=2).reshape(-1, 3)
 
             self.blocks[left_block_positions[:, 0], left_block_positions[:, 1], left_block_positions[:, 2]] = 1
             self.blocks[right_block_positions[:, 0], right_block_positions[:, 1], right_block_positions[:, 2]] = 1
         else:
             position_choices = [(x, y) for x in range(xBoundary) for y in range(yBoundary) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
             block_positions = self.rng.choice(position_choices, size=(3, n_blocks_each_color), replace=False)
-            block_positions = np.insert(block_positions, 0, [[0], [1], [2]], axis=1)
+            block_positions = np.insert(block_positions, [0], [[[0]], [[1]], [[2]]], axis=2).reshape(-1, 3)
             self.blocks[block_positions[:, 0], block_positions[:, 1], block_positions[:, 2]] = 1
 
         if self.nonstationary:
