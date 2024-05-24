@@ -301,20 +301,22 @@ class ColorMaze(ParallelEnv):
             # Relies on consume and spawn respawning in same hemisphere if is_unique_hemispheres_env=True.
             n_blocks_each_color_left_hemisphere = n_blocks_each_color // 2
             n_blocks_each_color_right_hemisphere = (n_blocks_each_color // 2) + 1
-            for _ in range(n_blocks_each_color_left_hemisphere):
-                self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
-                self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
-                self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
-            for _ in range(n_blocks_each_color_right_hemisphere):
-                self.blocks = self._consume_and_spawn_block(IDs.RED.value, xBoundary-1, 0, self.blocks)
-                self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, xBoundary-1, 0, self.blocks)
-                self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, xBoundary-1, 0, self.blocks)
+            left_position_choices = [(x, y) for x in range(xBoundary // 2) for y in range(yBoundary // 2) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
+            right_position_choices = [(x, y) for x in range(xBoundary // 2 + 1, xBoundary) for y in range(yBoundary // 2 + 1, yBoundary) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
+
+            left_block_positions = self.rng.choice(left_position_choices, size=(3, n_blocks_each_color_left_hemisphere), replace=False)
+            right_block_positions = self.rng.choice(right_position_choices, size=(3, n_blocks_each_color_right_hemisphere), replace=False)
+            left_block_positions = np.insert(left_block_positions, 0, [[0], [1], [2]], axis=1)
+            right_block_positions = np.insert(right_block_positions, 0, [[0], [1], [2]], axis=1)
+
+            self.blocks[left_block_positions[:, 0], left_block_positions[:, 1], left_block_positions[:, 2]] = 1
+            self.blocks[right_block_positions[:, 0], right_block_positions[:, 1], right_block_positions[:, 2]] = 1
         else:
-            for _ in range(n_blocks_each_color):
-                self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
-                self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
-                self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
-        
+            position_choices = [(x, y) for x in range(xBoundary) for y in range(yBoundary) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
+            block_positions = self.rng.choice(position_choices, size=(3, n_blocks_each_color), replace=False)
+            block_positions = np.insert(block_positions, 0, [[0], [1], [2]], axis=1)
+            self.blocks[block_positions[:, 0], block_positions[:, 1], block_positions[:, 2]] = 1
+
         if self.nonstationary:
             self.goal_block = self.rng.choice(np.array([IDs.RED, IDs.GREEN, IDs.BLUE]))
 
