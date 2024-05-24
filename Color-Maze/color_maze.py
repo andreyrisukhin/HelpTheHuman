@@ -297,10 +297,23 @@ class ColorMaze(ParallelEnv):
 
         # Randomly place X% blocks (in a 32x32, and 10%, 34 blocks of each color)
         n_blocks_each_color = int((xBoundary * yBoundary * self.block_density) // NUM_COLORS)
-        for _ in range(n_blocks_each_color):
-            self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
-            self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
-            self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
+        if self.is_unique_hemispheres_env:
+            # Relies on consume and spawn respawning in same hemisphere if is_unique_hemispheres_env=True.
+            n_blocks_each_color_left_hemisphere = n_blocks_each_color // 2
+            n_blocks_each_color_right_hemisphere = (n_blocks_each_color // 2) + 1
+            for _ in range(n_blocks_each_color_left_hemisphere):
+                self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
+                self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
+                self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
+            for _ in range(n_blocks_each_color_right_hemisphere):
+                self.blocks = self._consume_and_spawn_block(IDs.RED.value, xBoundary-1, 0, self.blocks)
+                self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, xBoundary-1, 0, self.blocks)
+                self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, xBoundary-1, 0, self.blocks)
+        else:
+            for _ in range(n_blocks_each_color):
+                self.blocks = self._consume_and_spawn_block(IDs.RED.value, 0, 0, self.blocks)
+                self.blocks = self._consume_and_spawn_block(IDs.GREEN.value, 0, 0, self.blocks)
+                self.blocks = self._consume_and_spawn_block(IDs.BLUE.value, 0, 0, self.blocks)
         
         if self.nonstationary:
             self.goal_block = self.rng.choice(np.array([IDs.RED, IDs.GREEN, IDs.BLUE]))
@@ -334,6 +347,17 @@ class ColorMaze(ParallelEnv):
 
     def _consume_and_spawn_block(self, color_idx: int, x: int, y: int, blocks: np.ndarray):
         blocks[color_idx, x, y] = 0
+        if self.is_unique_hemispheres_env: # Ensure block is spawned in the same hemisphere.
+            if x <= xBoundary // 2:
+                x_low = Boundary.x1.value
+                x_high = xBoundary // 2
+            else:
+                x_low = xBoundary // 2 + 1
+                x_high = Boundary.x2.value
+        else:
+            x_low = Boundary.x1.value
+            x_high = Boundary.x2.value
+
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
         zero_indices = np.argwhere(np.all((self.blocks == 0), axis=0))
@@ -341,6 +365,8 @@ class ColorMaze(ParallelEnv):
         for x,y in zero_indices:
             if ((x == self.leader.x and y == self.leader.y) or
                 (not self.leader_only and x == self.follower.x and y == self.follower.y)):
+                continue
+            if (self.is_unique_hemispheres_env) and (x < x_low or x > x_high): # Skip if not in the same hemisphere.
                 continue
 
             blocks[color_idx, x, y] = 1
