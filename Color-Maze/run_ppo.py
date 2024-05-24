@@ -200,10 +200,9 @@ def step(
     next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
 
     next_observations = {
-        agent: np.array([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
+        agent: torch.stack([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
         for agent in models
     }
-    next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
     next_goal_info = {
         agent: np.array([obs_dict[agent]["goal_info"] for obs_dict in next_observation_dicts])
         for agent in models
@@ -245,7 +244,7 @@ def step(
 
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
         
-        next_observations = {agent: np.array([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
+        next_observations = {agent: torch.stack([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
         next_individual_rewards = {agent: np.array([info_dict[agent]["individual_reward"] for info_dict in info_dicts]) for agent in models}
@@ -257,9 +256,8 @@ def step(
 
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
-        
+
         # Convert to tensors
-        next_observations = {agent: torch.tensor(next_observations[agent]).to(models[agent].device) for agent in models}
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
 
@@ -447,9 +445,9 @@ def train(
     if reward_shaping_func:
         reward_shaping_cls = ColorMazeRewards(close_threshold=reward_shaping_close_threshold, penalty=reward_shaping_penalty)
         reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob, device=DEVICE) for _ in range(num_envs)]
     else:
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE) for _ in range(num_envs)]
 
     if torch.cuda.device_count() > 1:
         model_devices = {

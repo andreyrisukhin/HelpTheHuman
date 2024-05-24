@@ -12,6 +12,7 @@ from gymnasium.spaces import Dict as DictSpace # Composite Spaces - Dict is best
 from pettingzoo import ParallelEnv
 
 import numpy as np
+import torch
 from typing import Callable, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -133,7 +134,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, is_unique_hemispheres_env:bool=False):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, is_unique_hemispheres_env:bool=False, device: str = 'cuda'):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -144,6 +145,7 @@ class ColorMaze(ParallelEnv):
         if self.seed is None:
             self.seed = 42
         self.rng = np.random.default_rng(seed=self.seed)
+        self.device = device
         
         self.goal_block = IDs.RED
         self.prob_block_switch = block_swap_prob # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
@@ -176,7 +178,7 @@ class ColorMaze(ParallelEnv):
         self.action_space = Discrete(NUM_MOVES)  # type: ignore # Moves: Up, Down, Left, Right
 
         # Blocks - invariant: for all (x, y) coordinates, no two slices are non-zero
-        self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.blocks = torch.zeros((NUM_COLORS, xBoundary, yBoundary), device=self.device)
         self.block_density = block_density
         
         self._n_channels = self.blocks.shape[0] + 2  # len(self.possible_agents)  # 5: 1 channel for each block color + 1 for each agent
@@ -221,7 +223,7 @@ class ColorMaze(ParallelEnv):
             self.goal_block = IDs(self.rng.choice(other_colors))            
             self.goal_switched = True
             
-    def _convert_to_observation(self, blocks:np.ndarray) -> np.ndarray:
+    def _convert_to_observation(self, blocks: torch.Tensor) -> torch.Tensor:
         """
         Converts the internal state of the environment into an observation that can be used by the agent.
         
@@ -230,10 +232,10 @@ class ColorMaze(ParallelEnv):
         Returns:
             numpy.ndarray: The observation array.
         """
-        leader_position = np.zeros((1, xBoundary, yBoundary))
+        leader_position = torch.zeros((1, xBoundary, yBoundary), device=self.device)
         leader_position[0, self.leader.x, self.leader.y] = 1
 
-        follower_position = np.zeros((1, xBoundary, yBoundary))
+        follower_position = torch.zeros((1, xBoundary, yBoundary), device=self.device)
         if not self.leader_only:
             follower_position[0, self.follower.x, self.follower.y] = 1
 
@@ -241,11 +243,11 @@ class ColorMaze(ParallelEnv):
         # leader_position.shape = (1, 32, 32)
         # follower_position.shape = (1, 32, 32)
 
-        observation = np.concatenate((self.blocks, leader_position, follower_position), axis=0)
+        observation = torch.cat((self.blocks, leader_position, follower_position), dim=0)
 
         # Ensure that observation is a 2d array
         assert observation.shape == (self._n_channels, xBoundary, yBoundary)
-        return observation.astype(np.float32)
+        return observation
 
     def set_state_to_observation(self, observation: np.ndarray):
         """
@@ -257,7 +259,8 @@ class ColorMaze(ParallelEnv):
         follower_places = observation[IDs.FOLLOWER.value].reshape((xBoundary, yBoundary))
         assert leader_places.sum() == 1
         assert self.leader_only or follower_places.sum() == 1
-        self.blocks = observation[IDs.RED.value : IDs.GREEN.value + 1]
+        tensor_observation = torch.tensor(observation, device=self.device)
+        self.blocks = tensor_observation[IDs.RED.value : IDs.GREEN.value + 1]
         assert self.blocks.shape == (NUM_COLORS, xBoundary, yBoundary)
         self.leader.x, self.leader.y = np.argwhere(leader_places).flatten()
         if follower_places.sum() == 1:
@@ -293,7 +296,7 @@ class ColorMaze(ParallelEnv):
                 self.follower.x = self.rng.integers(self.follower_x_min_boundary, Boundary.x2.value, endpoint=True)
                 self.follower.y = self.rng.integers(Boundary.y1.value, Boundary.y2.value, endpoint=True)
 
-        self.blocks = np.zeros((NUM_COLORS, xBoundary, yBoundary))
+        self.blocks = torch.zeros((NUM_COLORS, xBoundary, yBoundary), device=self.device)
 
         # Randomly place X% blocks (in a 32x32, and 10%, 34 blocks of each color)
         n_blocks_each_color = int((xBoundary * yBoundary * self.block_density) // NUM_COLORS)
@@ -347,7 +350,7 @@ class ColorMaze(ParallelEnv):
         infos = {a: {"individual_reward": 0} for a in self.agents}
         return observations, infos
 
-    def _consume_and_spawn_block(self, color_idx: int, x: int, y: int, blocks: np.ndarray):
+    def _consume_and_spawn_block(self, color_idx: int, x: int, y: int, blocks: torch.Tensor):
         blocks[color_idx, x, y] = 0
         if self.is_unique_hemispheres_env: # Ensure block is spawned in the same hemisphere.
             if x <= xBoundary // 2:
@@ -362,17 +365,34 @@ class ColorMaze(ParallelEnv):
 
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
-        zero_indices = np.argwhere(np.all((self.blocks == 0), axis=0))
-        self.rng.shuffle(zero_indices)
-        for x,y in zero_indices:
-            if ((x == self.leader.x and y == self.leader.y) or
-                (not self.leader_only and x == self.follower.x and y == self.follower.y)):
-                continue
-            if (self.is_unique_hemispheres_env) and (x < x_low or x > x_high): # Skip if not in the same hemisphere.
-                continue
+        leader_position = torch.zeros((1, xBoundary, yBoundary), device=self.device)
+        leader_position[0, self.leader.x, self.leader.y] = 1
 
-            blocks[color_idx, x, y] = 1
-            return blocks
+        follower_position = torch.zeros((1, xBoundary, yBoundary), device=self.device)
+        if not self.leader_only:
+            follower_position[0, self.follower.x, self.follower.y] = 1
+
+        # self.blocks.shape = (3, 32, 32)
+        # leader_position.shape = (1, 32, 32)
+        # follower_position.shape = (1, 32, 32)
+
+        observation = torch.cat((self.blocks, leader_position, follower_position), dim=0)
+        zero_indices = torch.argwhere(torch.all((observation == 0), dim=0))
+        i = torch.randint(low=0, high=len(zero_indices), size=(1,))
+        x = zero_indices[i, 0]
+        y = zero_indices[i, 1]
+        blocks[color_idx, x, y] = 1
+        # self.rng.shuffle(zero_indices.cpu().numpy())
+        # for x,y in zero_indices:
+            # if ((x == self.leader.x and y == self.leader.y) or
+                # (not self.leader_only and x == self.follower.x and y == self.follower.y)):
+                # continue
+            # if (self.is_unique_hemispheres_env) and (x < x_low or x > x_high): # Skip if not in the same hemisphere.
+                # continue
+
+            # blocks[color_idx, x, y] = 1
+            # return blocks
+        return
         assert False, "No cell with value 0 found to update."
 
     def step(self, actions):
@@ -415,13 +435,13 @@ class ColorMaze(ParallelEnv):
             if self.blocks[self.goal_block.value, x, y]:
                 shared_reward += 1
                 individual_rewards[agent] += 1
-                self.blocks = self._consume_and_spawn_block(self.goal_block.value, x, y, self.blocks)
+                self._consume_and_spawn_block(self.goal_block.value, x, y, self.blocks)
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
                         shared_reward -= self.block_penalty
                         individual_rewards[agent] -= self.block_penalty
-                        self.blocks = self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
+                        self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break  # Can't step on two non-rewarding blocks at once
 
         rewards = {agent: shared_reward for agent in self.agents}
@@ -493,11 +513,11 @@ class ColorMaze(ParallelEnv):
         grid[self.leader.x, self.leader.y] = "L"
         if not self.leader_only:
             grid[self.follower.x, self.follower.y] = "F"
-        for x, y in np.argwhere(self.blocks[IDs.RED.value]):
+        for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
             grid[x, y] = "R"
-        for x, y in np.argwhere(self.blocks[IDs.GREEN.value]):
+        for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
             grid[x, y] = "G"
-        for x, y in np.argwhere(self.blocks[IDs.BLUE.value]):
+        for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
             grid[x, y] = "B"
 
         # Flip it so y is increasing upwards
