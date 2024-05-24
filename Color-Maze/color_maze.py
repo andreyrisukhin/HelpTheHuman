@@ -155,7 +155,7 @@ class ColorMaze(ParallelEnv):
         # When True: leader can only exist in left env side, x in [0, xBoundary // 2]. Follower x in [xBoundary // 2, xBoundary].
         if self.is_unique_hemispheres_env:
             self.leader_x_max_boundary = xBoundary // 2
-            self.follower_x_min_boundary = xBoundary // 2
+            self.follower_x_min_boundary = (xBoundary // 2) + 1
         else:
             self.leader_x_max_boundary = Boundary.x2.value
             self.follower_x_min_boundary = Boundary.x1.value
