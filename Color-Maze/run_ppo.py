@@ -150,10 +150,11 @@ def step(
         value_func_coef: float,
         max_grad_norm: float,
         seeds: list[int],
+        training_agents: dict[str, bool],
         target_kl: float | None,
         block_penalty: float,
         sampling_temperature: float = 1.0,
-        goalinfo_loss_coef: float = 0
+        goalinfo_loss_coef: float = 0,
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -292,68 +293,69 @@ def step(
         b_lstm_hidden_states = lstm_hidden_states[agent].reshape((-1, model.hidden_size))
         b_lstm_cell_states = lstm_cell_states[agent].reshape((-1, model.hidden_size))
 
-        # Optimizing the policy and value network
-        b_inds = np.arange(batch_size)
-        clipfracs = []
-        for epoch in range(ppo_update_epochs):
-            np.random.shuffle(b_inds)
-            for start in range(0, batch_size, minibatch_size):
-                end = start + minibatch_size
-                mb_inds = b_inds[start:end]
+        if training_agents[agent]:
+            # Optimizing the policy and value network
+            b_inds = np.arange(batch_size)
+            clipfracs = []
+            for epoch in range(ppo_update_epochs):
+                np.random.shuffle(b_inds)
+                for start in range(0, batch_size, minibatch_size):
+                    end = start + minibatch_size
+                    mb_inds = b_inds[start:end]
 
-                _, newlogprob, entropy, newvalue, goalinfo_logits, _ = model.get_action_and_value(
-                    b_obs[mb_inds], 
-                    goal_info=b_goal_info.long()[mb_inds], 
-                    action=b_actions.long()[mb_inds],
-                    prev_hidden_and_cell_states=(b_lstm_hidden_states[mb_inds], b_lstm_cell_states[mb_inds]),
-                )
-                logratio = newlogprob - b_logprobs[mb_inds]
-                ratio = logratio.exp()
-
-                with torch.no_grad():
-                    # calculate approx_kl http://joschu.net/blog/kl-approx.html
-                    approx_kl = ((ratio - 1) - logratio).mean()
-                    clipfracs += [((ratio - 1.0).abs() > clip_param).float().mean().item()]
-
-                mb_advantages = b_advantages[mb_inds]
-                if norm_advantage:
-                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
-
-                # Policy loss
-                pg_loss1 = -mb_advantages * ratio
-                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_param, 1 + clip_param)
-                pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-
-                # Value loss
-                newvalue = newvalue.view(-1)
-                if clip_vloss:
-                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                    v_clipped = b_values[mb_inds] + torch.clamp(
-                        newvalue - b_values[mb_inds],
-                        -clip_param,
-                        clip_param,
+                    _, newlogprob, entropy, newvalue, goalinfo_logits, _ = model.get_action_and_value(
+                        b_obs[mb_inds], 
+                        goal_info=b_goal_info.long()[mb_inds], 
+                        action=b_actions.long()[mb_inds],
+                        prev_hidden_and_cell_states=(b_lstm_hidden_states[mb_inds], b_lstm_cell_states[mb_inds]),
                     )
-                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
-                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
-                    v_loss = 0.5 * v_loss_max.mean()
-                else:
-                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                    logratio = newlogprob - b_logprobs[mb_inds]
+                    ratio = logratio.exp()
 
-                # Auxiliary goalinfo prediction loss
-                ce_loss_func = torch.nn.CrossEntropyLoss()
-                goalinfo_loss = ce_loss_func(goalinfo_logits, b_goal_info.long()[mb_inds].argmax(dim=-1).view(-1))
+                    with torch.no_grad():
+                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [((ratio - 1.0).abs() > clip_param).float().mean().item()]
 
-                entropy_loss = entropy.mean()
-                loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef + goalinfo_loss * goalinfo_loss_coef
-                acc_losses[agent] += loss.detach().cpu().item()
+                    mb_advantages = b_advantages[mb_inds]
+                    if norm_advantage:
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
-                optimizers[agent].zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                optimizers[agent].step()
+                    # Policy loss
+                    pg_loss1 = -mb_advantages * ratio
+                    pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - clip_param, 1 + clip_param)
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
-            if target_kl is not None and approx_kl > target_kl:
-                break
+                    # Value loss
+                    newvalue = newvalue.view(-1)
+                    if clip_vloss:
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        v_clipped = b_values[mb_inds] + torch.clamp(
+                            newvalue - b_values[mb_inds],
+                            -clip_param,
+                            clip_param,
+                        )
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                    # Auxiliary goalinfo prediction loss
+                    ce_loss_func = torch.nn.CrossEntropyLoss()
+                    goalinfo_loss = ce_loss_func(goalinfo_logits, b_goal_info.long()[mb_inds].argmax(dim=-1).view(-1))
+
+                    entropy_loss = entropy.mean()
+                    loss = pg_loss - entropy_coef * entropy_loss + v_loss * value_func_coef + goalinfo_loss * goalinfo_loss_coef
+                    acc_losses[agent] += loss.detach().cpu().item()
+
+                    optimizers[agent].zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    optimizers[agent].step()
+
+                if target_kl is not None and approx_kl > target_kl:
+                    break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -385,6 +387,7 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,  # If True, configures the environment with a single agent.
         warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
+        frozen_leader: bool = False,
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
         use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
         compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
@@ -525,6 +528,11 @@ def train(
         penalty_inc_per_step = 1 / (full_block_penalty_at - no_block_penalty_until)
         get_block_penalty = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
 
+    training_agents = {
+        'leader': not frozen_leader,
+        'follower': True
+    }
+
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
     print(f'No block penalty until {no_block_penalty_until}, full -1 penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
 
@@ -559,6 +567,7 @@ def train(
             block_penalty=block_penalty,
             sampling_temperature=sampling_temperature,
             goalinfo_loss_coef=goalinfo_loss_coef,
+            training_agents=training_agents
         )
 
         metrics = {}
