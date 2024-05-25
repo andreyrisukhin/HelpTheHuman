@@ -304,8 +304,8 @@ class ColorMaze(ParallelEnv):
             # Relies on consume and spawn respawning in same hemisphere if is_unique_hemispheres_env=True.
             n_blocks_each_color_left_hemisphere = n_blocks_each_color // 2
             n_blocks_each_color_right_hemisphere = (n_blocks_each_color // 2) + 1
-            left_position_choices = [(x, y) for x in range(xBoundary // 2) for y in range(yBoundary // 2) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
-            right_position_choices = [(x, y) for x in range(xBoundary // 2 + 1, xBoundary) for y in range(yBoundary // 2 + 1, yBoundary) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
+            left_position_choices = [(x, y) for x in range(xBoundary // 2) for y in range(yBoundary) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
+            right_position_choices = [(x, y) for x in range(xBoundary // 2 + 1, xBoundary) for y in range(yBoundary) if (x, y) != (self.leader.x, self.leader.y) and (x, y) != (self.follower.x, self.follower.y)]
 
             left_block_positions = self.rng.choice(left_position_choices, size=(3, n_blocks_each_color_left_hemisphere), replace=False)
             right_block_positions = self.rng.choice(right_position_choices, size=(3, n_blocks_each_color_right_hemisphere), replace=False)
@@ -352,16 +352,17 @@ class ColorMaze(ParallelEnv):
 
     def _consume_and_spawn_block(self, color_idx: int, x: int, y: int, blocks: torch.Tensor):
         blocks[color_idx, x, y] = 0
+        # x_high is exclusive
         if self.is_unique_hemispheres_env: # Ensure block is spawned in the same hemisphere.
             if x <= xBoundary // 2:
                 x_low = Boundary.x1.value
-                x_high = xBoundary // 2
+                x_high = xBoundary // 2 + 1
             else:
                 x_low = xBoundary // 2 + 1
-                x_high = Boundary.x2.value
+                x_high = Boundary.x2.value + 1
         else:
             x_low = Boundary.x1.value
-            x_high = Boundary.x2.value
+            x_high = Boundary.x2.value + 1
 
         # Find a different cell that is not occupied (leader, follower, existing block) and set it to this block.
         # Also make sure no other color is present there      
@@ -377,21 +378,11 @@ class ColorMaze(ParallelEnv):
         # follower_position.shape = (1, 32, 32)
 
         observation = torch.cat((self.blocks, leader_position, follower_position), dim=0)
-        zero_indices = torch.argwhere(torch.all((observation == 0), dim=0))
+        zero_indices = torch.argwhere(torch.all((observation[:, x_low:x_high, :] == 0), dim=0))
         i = torch.randint(low=0, high=len(zero_indices), size=(1,))
-        x = zero_indices[i, 0]
+        x = zero_indices[i, 0] + x_low
         y = zero_indices[i, 1]
         blocks[color_idx, x, y] = 1
-        # self.rng.shuffle(zero_indices.cpu().numpy())
-        # for x,y in zero_indices:
-            # if ((x == self.leader.x and y == self.leader.y) or
-                # (not self.leader_only and x == self.follower.x and y == self.follower.y)):
-                # continue
-            # if (self.is_unique_hemispheres_env) and (x < x_low or x > x_high): # Skip if not in the same hemisphere.
-                # continue
-
-            # blocks[color_idx, x, y] = 1
-            # return blocks
         return
         assert False, "No cell with value 0 found to update."
 
