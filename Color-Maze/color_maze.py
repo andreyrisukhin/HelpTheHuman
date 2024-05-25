@@ -153,7 +153,7 @@ class ColorMaze(ParallelEnv):
         self.goal_block = IDs.RED
         self.prob_block_switch = block_swap_prob # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
         self.goal_switched = False
-        self.block_penalty = 1
+        # self.block_penalty = 1 # Used to be the negative_reward arg, now deprecated.
         self.nonstationary = nonstationary
         self.negative_reward = negative_reward
         self.positive_reward = positive_reward
@@ -283,9 +283,9 @@ class ColorMaze(ParallelEnv):
 
         if options is None:
             options = {}
-        if "block_penalty" in options:
-            assert isinstance(options["block_penalty"], float) or isinstance(options["block_penalty"], int)
-            self.block_penalty = abs(options["block_penalty"])
+        # if "block_penalty" in options:
+        #     assert isinstance(options["block_penalty"], float) or isinstance(options["block_penalty"], int)
+        #     self.block_penalty = abs(options["block_penalty"])
 
         self.agents = copy(self.possible_agents)
         self.timestep = 0
@@ -429,14 +429,14 @@ class ColorMaze(ParallelEnv):
             individual_rewards[agent] = 0
 
             if self.blocks[self.goal_block.value, x, y]:
-                shared_reward += 1
-                individual_rewards[agent] += 1
+                shared_reward += self.positive_reward
+                individual_rewards[agent] += self.positive_reward
                 self._consume_and_spawn_block(self.goal_block.value, x, y, self.blocks)
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        shared_reward -= self.block_penalty
-                        individual_rewards[agent] -= self.block_penalty
+                        shared_reward += self.negative_reward
+                        individual_rewards[agent] += self.negative_reward # TODO generalize this to "add block reward", whether it is positive or negative.
                         self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break  # Can't step on two non-rewarding blocks at once
 
@@ -454,8 +454,8 @@ class ColorMaze(ParallelEnv):
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty)
-            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.negative_reward)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.negative_reward)
 
         # Check termination conditions
         termination = False
