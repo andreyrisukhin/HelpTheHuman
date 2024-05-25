@@ -36,16 +36,15 @@ class Boundary(Enum):
 
 xBoundary = Boundary.x2.value + 1 - Boundary.x1.value
 yBoundary = Boundary.y2.value + 1 - Boundary.y1.value
-NUM_COLORS = 3
+NUM_COLORS = 2
 NUM_MOVES = 4
 
 
 class IDs(Enum):
     RED = 0
     BLUE = 1
-    GREEN = 2
-    LEADER = 3
-    FOLLOWER = 4
+    LEADER = 2
+    FOLLOWER = 3
 
 
 @dataclass 
@@ -134,7 +133,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, is_unique_hemispheres_env:bool=False, device: str = 'cuda'):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = ((NUM_COLORS - 1) / NUM_COLORS) * 1/32, is_unique_hemispheres_env:bool=False, device: str = 'cuda'):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
