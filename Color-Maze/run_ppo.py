@@ -402,6 +402,7 @@ def train(
         reward_shaping_timesteps: int = 0,  # If reward_shaping_func, the number of timesteps to keep reward shaping active for
         reward_shaping_close_threshold: int = 0,  # If reward_shaping_func, the threshold at which two agents are determined to be "close"
         reward_shaping_penalty: int = 0,  # If reward_shaping_func, the penalty applied if the shaping condition is violated
+        use_hemisphere: bool = False,  # If True, restricts each agent to half of the grid
         # PPO params
         total_timesteps: int = 500000,  # Total number of environment timesteps to run the PPO training loop for
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -445,9 +446,9 @@ def train(
     if reward_shaping_func:
         reward_shaping_cls = ColorMazeRewards(close_threshold=reward_shaping_close_threshold, penalty=reward_shaping_penalty)
         reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward, is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
     else:
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward, is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
 
     if torch.cuda.device_count() > 1:
         model_devices = {
