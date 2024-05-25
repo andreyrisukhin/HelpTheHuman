@@ -131,10 +131,12 @@ class ColorMazeRewards():
 
         return rewards
 
-
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, is_unique_hemispheres_env:bool=False, device: str = 'cuda'):
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, 
+                 nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, 
+                 is_unique_hemispheres_env:bool=False, device: str = 'cuda', 
+                 positive_reward: float = 1.0, negative_reward: float = -1.0):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -147,11 +149,14 @@ class ColorMaze(ParallelEnv):
         self.rng = np.random.default_rng(seed=self.seed)
         self.device = device
         
+        # Block parameters
         self.goal_block = IDs.RED
         self.prob_block_switch = block_swap_prob # 1/32 is 2x For h=64 #0.01 # Uniformly at random, expect 1 switch every 100 timesteps.
         self.goal_switched = False
         self.block_penalty = 1
         self.nonstationary = nonstationary
+        self.negative_reward = negative_reward
+        self.positive_reward = positive_reward
 
         self.is_unique_hemispheres_env = is_unique_hemispheres_env 
         # When True: leader can only exist in left env side, x in [0, xBoundary // 2]. Follower x in [xBoundary // 2, xBoundary].

@@ -385,13 +385,14 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,  # If True, configures the environment with a single agent.
         warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
-        frozen_leader: bool = False,
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
         use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
         compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
         # Frozen expert leader params
-        use_frozen_checkpoint_leader: bool = False,  # If True, uses a frozen leader model for the follower
-                
+        frozen_leader: bool = False,
+        # Block reward parameters
+        positive_reward: float = 1.0,  # Reward for correct pickup
+        negative_reward: float = -1.0,  # Reward for incorrect pickup
         # Env params
         block_density: float = 0.05,  # Density of blocks populating the environment grid.
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
