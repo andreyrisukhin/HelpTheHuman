@@ -151,7 +151,7 @@ def step(
         seeds: list[int],
         training_agents: dict[str, bool],
         target_kl: float | None,
-        block_penalty: float,
+        block_penalty_coef: float,
         sampling_temperature: float = 1.0,
         goalinfo_loss_coef: float = 0,
 ) -> Tuple[dict[str, StepData], int]:
@@ -196,7 +196,7 @@ def step(
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty_coef": block_penalty_coef}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
 
     next_observations = {
         agent: torch.stack([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
@@ -526,10 +526,10 @@ def train(
     assert no_block_penalty_until <= full_block_penalty_at
     if full_block_penalty_at == 0:
         penalty_inc_per_step = 0
-        get_block_penalty = lambda step: 1
+        get_block_penalty_coef = lambda step: 1
     else:
         penalty_inc_per_step = 1 / (full_block_penalty_at - no_block_penalty_until)
-        get_block_penalty = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
+        get_block_penalty_coef = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
 
     training_agents = {
         'leader': not frozen_leader,
@@ -537,7 +537,7 @@ def train(
     }
 
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
-    print(f'No block penalty until {no_block_penalty_until}, full -1 penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
+    print(f'No block penalty until {no_block_penalty_until}, full {negative_reward} penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
 
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
@@ -546,9 +546,9 @@ def train(
 
         if reward_shaping_func and iteration * batch_size > reward_shaping_timesteps:
             # Disable reward shaping if timestep threshold is exceeded
-            envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)]
+            envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward, is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
 
-        block_penalty = get_block_penalty(iteration * batch_size)
+        block_penalty_coef = get_block_penalty_coef(iteration * batch_size)
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
@@ -567,7 +567,7 @@ def train(
             max_grad_norm=max_grad_norm,
             seeds=env_seeds,
             target_kl=target_kl,
-            block_penalty=block_penalty,
+            block_penalty_coef=block_penalty_coef,
             sampling_temperature=sampling_temperature,
             goalinfo_loss_coef=goalinfo_loss_coef,
             training_agents=training_agents
@@ -586,7 +586,7 @@ def train(
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
-        metrics['block_penalty'] = block_penalty
+        metrics['block_penalty'] = block_penalty_coef
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
