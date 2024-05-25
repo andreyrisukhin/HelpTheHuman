@@ -424,6 +424,7 @@ def train(
         # Config params
         save_data_iters: int = 100, # Save data every save_data_iters iterations from num_iterations, calculated below
         checkpoint_iters: int = 0,  # Checkpoint model and optimizer states every checkpoint_iters iterations
+        save_only_one_ckpt: bool = False,  # If True, deletes older checkpoints after saving the new one
         debug_print: bool = False,  # Whether to enable debug mode
         log_to_wandb: bool = True,  # Whether to enable logging to weights and biases
         seed: int = 42,  # Random seed
@@ -611,6 +612,10 @@ def train(
                 torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
                 optimizer = optimizers[agent_name]
                 torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
+
+                if save_only_one_ckpt:
+                    os.remove(f'results/{run_name}/{agent_name}_iteration={iteration - checkpoint_iters}.pth')
+                    os.remove(f'results/{run_name}/{agent_name}_optimizer_iteration={iteration - checkpoint_iters}.pth')
 
         for i in range(len(envs)):
             env_seeds[i] += len(envs)
