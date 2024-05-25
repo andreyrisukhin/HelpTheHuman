@@ -389,9 +389,7 @@ def train(
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
         use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
         compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
-        # Frozen expert leader params
-        use_frozen_checkpoint_leader: bool = False,  # If True, uses a frozen leader model for the follower
-                
+
         # Env params
         block_density: float = 0.05,  # Density of blocks populating the environment grid.
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
