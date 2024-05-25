@@ -11,8 +11,7 @@ from tqdm import tqdm
 import os
 from pettingzoo import ParallelEnv
 
-from color_maze import ColorMaze
-from color_maze import ColorMazeRewards
+from color_maze import ColorMaze, ColorMazeRewards, NUM_COLORS
 
 @dataclass
 class StepData:
@@ -60,7 +59,7 @@ class ActorCritic(nn.Module):
             nn.Tanh(),
         )
         self.feature_linear = nn.Sequential(
-            layer_init(nn.Linear(192 + 3, 192)),
+            layer_init(nn.Linear(192 + NUM_COLORS, 192)),
             nn.Tanh(),
             layer_init(nn.Linear(192, 192)),
             nn.Tanh(),
@@ -84,7 +83,7 @@ class ActorCritic(nn.Module):
         self.auxiliary_goalinfo_network = nn.Sequential(
             layer_init(nn.Linear(192, 64)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 3))
+            layer_init(nn.Linear(64, NUM_COLORS))
         ).to(device)
 
     def forward(self, x, goal_info, prev_hidden_and_cell_states: tuple | None = None):
@@ -398,7 +397,7 @@ def train(
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
         full_block_penalty_at: int = 0,  # The timestep at which block penalty reaches 1 (linearly increasing)
         asymmetric: bool = False,  # True if the follower should NOT get goal info
-        block_swap_prob: float = 2/3 * 1/32,  # Probability of swapping the block positions
+        block_swap_prob: float = ((NUM_COLORS - 1) / NUM_COLORS) * 1/32,  # Probability of swapping the block positions
         reward_shaping_func: str | None = None,  # If provided, the name of reward shaping function to use. Must correspond to a method under ColorMazeRewards.
         reward_shaping_timesteps: int = 0,  # If reward_shaping_func, the number of timesteps to keep reward shaping active for
         reward_shaping_close_threshold: int = 0,  # If reward_shaping_func, the threshold at which two agents are determined to be "close"
