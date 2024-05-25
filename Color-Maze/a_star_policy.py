@@ -12,6 +12,26 @@ class AStarAgent(Agent):
         self.agent = self.env.agents[self.agent_id]
         self.show_obs = show_obs
         self.path = None
+        
+
+    def __call__(self, observation, agent):
+        # only trigger when we are the correct agent
+        assert (
+            agent == self.agent
+        ), f"A* Policy only applied to agent: {self.agent}, but got tag for {agent}."
+
+        
+        # if the path is empty or the goal color just switched or the agent just collected a block
+        if not self.path or self.env.goal_block != self.env.goal_block_prev or self.env.leader.collected_block:
+            blocks = self.env.blocks
+            self.path = self.a_star_search(self.env, blocks)
+            self.env.goal_block_prev = self.env.goal_block
+            
+            blocks = self.env.blocks
+            self.path = self.a_star_search(self.env, blocks)
+            assert self.path, "No path found"
+
+        return self.get_next_action(self.path)
 
     def heuristic(self, leader_pos, goal_pos):
         """
@@ -81,8 +101,8 @@ class AStarAgent(Agent):
                     if not in_open_set:
                         heapq.heappush(open_set, (new_cost, neighbor_pos, new_path))
 
-        # If no path is found, return an empty list
-        return []
+        # Inv: Path should never be empty
+        assert False, "No path found"
     
     def get_next_action(self, path):
         """
