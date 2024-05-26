@@ -151,7 +151,7 @@ def step(
         seeds: list[int],
         training_agents: dict[str, bool],
         target_kl: float | None,
-        block_penalty: float,
+        block_penalty_coef: float,
         sampling_temperature: float = 1.0,
         goalinfo_loss_coef: float = 0,
 ) -> Tuple[dict[str, StepData], int]:
@@ -196,7 +196,7 @@ def step(
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
     lstm_cell_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
 
-    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty": block_penalty}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
+    next_observation_dicts, info_dicts = list(zip(*[env.reset(seed=seed, options={"block_penalty_coef": block_penalty_coef}) for env, seed in zip(envs, seeds)])) # [env1{leader:{obs:.., goal_info:..}, follower:{..}} , env2...]
 
     next_observations = {
         agent: torch.stack([obs_dict[agent]["observation"] for obs_dict in next_observation_dicts])
@@ -384,11 +384,18 @@ def train(
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,  # If True, configures the environment with a single agent.
         warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
-        frozen_leader: bool = False,
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
         use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
         compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
-
+        # Frozen expert leader params
+        frozen_leader: bool = False,
+        # Block reward parameters
+        red_reward_mean: float = 1.0,
+        blue_reward_mean: float = 1.0,
+        green_reward_mean: float = 1.0,
+        red_reward_var: float = 1.0,
+        blue_reward_var: float = 1.0,
+        green_reward_var: float = 1.0,
         # Env params
         block_density: float = 0.05,  # Density of blocks populating the environment grid.
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
@@ -399,6 +406,7 @@ def train(
         reward_shaping_timesteps: int = 0,  # If reward_shaping_func, the number of timesteps to keep reward shaping active for
         reward_shaping_close_threshold: int = 0,  # If reward_shaping_func, the threshold at which two agents are determined to be "close"
         reward_shaping_penalty: int = 0,  # If reward_shaping_func, the penalty applied if the shaping condition is violated
+        use_hemisphere: bool = False,  # If True, restricts each agent to half of the grid
         # PPO params
         total_timesteps: int = 500000,  # Total number of environment timesteps to run the PPO training loop for
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
@@ -420,6 +428,7 @@ def train(
         # Config params
         save_data_iters: int = 100, # Save data every save_data_iters iterations from num_iterations, calculated below
         checkpoint_iters: int = 0,  # Checkpoint model and optimizer states every checkpoint_iters iterations
+        save_only_one_ckpt: bool = False,  # If True, deletes older checkpoints after saving the new one
         debug_print: bool = False,  # Whether to enable debug mode
         log_to_wandb: bool = True,  # Whether to enable logging to weights and biases
         seed: int = 42,  # Random seed
@@ -442,9 +451,35 @@ def train(
     if reward_shaping_func:
         reward_shaping_cls = ColorMazeRewards(close_threshold=reward_shaping_close_threshold, penalty=reward_shaping_penalty)
         reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob, device=DEVICE) for _ in range(num_envs)]
+        envs = [ColorMaze(
+            leader_only=leader_only,
+            block_density=block_density,
+            asymmetric=asymmetric,
+            reward_shaping_fns=[reward_shaping],
+            block_swap_prob=block_swap_prob,
+            device=DEVICE,
+            red_reward_mean=red_reward_mean,
+            blue_reward_mean=blue_reward_mean,
+            green_reward_mean=green_reward_mean,
+            red_reward_var=red_reward_var,
+            blue_reward_var=blue_reward_var,
+            green_reward_var=green_reward_var,
+            is_unique_hemispheres_env=use_hemisphere
+        ) for _ in range(num_envs)]
     else:
-        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE) for _ in range(num_envs)]
+        envs = [ColorMaze(
+            leader_only=leader_only,
+            block_density=block_density,
+            asymmetric=asymmetric,
+            block_swap_prob=block_swap_prob,
+            device=DEVICE,
+            red_reward_mean=red_reward_mean,
+            blue_reward_mean=blue_reward_mean,
+            green_reward_mean=green_reward_mean,
+            red_reward_var=red_reward_var,
+            blue_reward_var=blue_reward_var,
+            green_reward_var=green_reward_var,
+            is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
 
     if torch.cuda.device_count() > 1:
         model_devices = {
@@ -521,10 +556,10 @@ def train(
     assert no_block_penalty_until <= full_block_penalty_at
     if full_block_penalty_at == 0:
         penalty_inc_per_step = 0
-        get_block_penalty = lambda step: 1
+        get_block_penalty_coef = lambda step: 1
     else:
         penalty_inc_per_step = 1 / (full_block_penalty_at - no_block_penalty_until)
-        get_block_penalty = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
+        get_block_penalty_coef = lambda step: 0 if step <= no_block_penalty_until else min(1, penalty_inc_per_step * (step - no_block_penalty_until))
 
     training_agents = {
         'leader': not frozen_leader,
@@ -532,7 +567,7 @@ def train(
     }
 
     print(f'Running for {num_iterations} iterations using {num_envs} envs with {batch_size=} and {minibatch_size=}')
-    print(f'No block penalty until {no_block_penalty_until}, full -1 penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
+    print(f'No block penalty until {no_block_penalty_until}, full {negative_reward} penalty after {full_block_penalty_at} timesteps. Increment by {penalty_inc_per_step} per timestep')
 
 
     for iteration in tqdm(range(num_iterations), total=num_iterations):
@@ -541,9 +576,9 @@ def train(
 
         if reward_shaping_func and iteration * batch_size > reward_shaping_timesteps:
             # Disable reward shaping if timestep threshold is exceeded
-            envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric) for _ in range(num_envs)]
+            envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward, is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
 
-        block_penalty = get_block_penalty(iteration * batch_size)
+        block_penalty_coef = get_block_penalty_coef(iteration * batch_size)
         step_results, num_goals_switched = step(
             envs=envs,
             models=models,
@@ -562,7 +597,7 @@ def train(
             max_grad_norm=max_grad_norm,
             seeds=env_seeds,
             target_kl=target_kl,
-            block_penalty=block_penalty,
+            block_penalty_coef=block_penalty_coef,
             sampling_temperature=sampling_temperature,
             goalinfo_loss_coef=goalinfo_loss_coef,
             training_agents=training_agents
@@ -581,7 +616,7 @@ def train(
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
-        metrics['block_penalty'] = block_penalty
+        metrics['block_penalty'] = block_penalty_coef
 
         if log_to_wandb:
             wandb.log(metrics, step=iteration)
@@ -607,6 +642,10 @@ def train(
                 torch.save(model.state_dict(), f'results/{run_name}/{agent_name}_{iteration=}.pth')
                 optimizer = optimizers[agent_name]
                 torch.save(optimizer.state_dict(), f'results/{run_name}/{agent_name}_optimizer_{iteration=}.pth')
+
+                if save_only_one_ckpt:
+                    os.remove(f'results/{run_name}/{agent_name}_iteration={iteration - checkpoint_iters}.pth')
+                    os.remove(f'results/{run_name}/{agent_name}_optimizer_iteration={iteration - checkpoint_iters}.pth')
 
         for i in range(len(envs)):
             env_seeds[i] += len(envs)
