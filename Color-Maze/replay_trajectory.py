@@ -1,15 +1,7 @@
 import numpy as np
 from fire import Fire
 
-from color_maze import ColorMaze, IDs
-
-# ANSI color codes
-class Colors:
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    DEFAULT = '\033[0m'
+from color_maze import ColorMaze, IDs, Colors
 
 # goal_string = f'{colors.IDs(goal_idx)}{goal_idx}{colors.DEFAULT'
 

@@ -47,6 +47,12 @@ class IDs(Enum):
     LEADER = 3
     FOLLOWER = 4
 
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    DEFAULT = '\033[0m'
 
 @dataclass 
 class Agent:
@@ -130,13 +136,6 @@ class ColorMazeRewards():
         rewards["follower"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
 
         return rewards
-
-class Colors:
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    DEFAULT = '\033[0m'
 
 class ColorMaze(ParallelEnv):
     
@@ -520,26 +519,6 @@ class ColorMaze(ParallelEnv):
         truncateds = terminateds
         return observations, individual_rewards, terminateds, truncateds, infos
 
-    # def render(self):
-    #     """Render the environment."""
-    #     grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
-    #     grid[self.leader.x, self.leader.y] = "L"
-    #     if not self.leader_only:
-    #         grid[self.follower.x, self.follower.y] = "F"
-    #     for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
-    #         grid[x, y] = "R"
-    #     for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
-    #         grid[x, y] = "G"
-    #     for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
-    #         grid[x, y] = "B"
-
-    #     # Flip it so y is increasing upwards
-    #     grid = np.flipud(grid.T)
-    #     rendered = ""
-    #     for row in grid:
-    #         rendered += "".join(row) + "\n"
-    #     print(rendered)
-
     def print_with_goal_color(self, element, goal_index):
         """Print the element with color if it matches the goal index."""
         if element == "L":
@@ -590,25 +569,5 @@ class ColorMaze(ParallelEnv):
         """Set the goal block for the environment. Used by render only!!! Dangerous otherwise."""
         self.goal_block = goal_block
 
-    # def render(self):
-    #     """Render the environment."""
-    #     grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
-    #     # grid[self.leader.x, self.leader.y] = "L"
-    #     grid[self.leader.x, self.leader.y] = f"{Colors.YELLOW}L"  # Yellow leader
-    #     if not self.leader_only:
-    #         grid[self.follower.x, self.follower.y] = "F"
-    #     for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
-    #         grid[x, y] = "R"
-    #     for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
-    #         grid[x, y] = "G"
-    #     for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
-    #         grid[x, y] = "B"
-
-    #     # Flip it so y is increasing upwards
-    #     grid = np.flipud(grid.T)
-    #     rendered = ""
-    #     for row in grid:
-    #         rendered += "".join(row) + "\n"
-    #     print(rendered)
 
 
