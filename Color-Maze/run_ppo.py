@@ -240,7 +240,6 @@ def step(
                     all_entropies[agent][step] = entropy.flatten().cpu().numpy()
 
                 elif type(model) == AStarAgent:
-                    
                     action = model(next_observations[agent], agent=agent)
                 else:
                     raise ValueError(f"Unknown model type: {type(model)}")
@@ -478,8 +477,8 @@ def train(
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
     if a_star_leader:
-        # leader = AStarAgent(envs[0])
-        # leader_optimizer = None
+        leader = AStarAgent(envs[0])
+        leader_optimizer = None
         frozen_leader = True
     else:
         leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
