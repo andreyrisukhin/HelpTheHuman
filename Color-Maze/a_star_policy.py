@@ -5,20 +5,14 @@ from color_maze import Moves, IDs
 import torch
 
 class AStarAgent:
-    def __init__(self, env, agent_id: int = 0, show_obs: bool = False):
+    def __init__(self, env):
         self.env = env
-        self.agent_id = agent_id
-        self.agent = self.env.agents[self.agent_id]
-        self.show_obs = show_obs
+        # self.agent = self.env.agents[self.agent_id]
+        # self.show_obs = show_obs
         self.goal_block_color = None
-        self.path = self.a_star_search()
-        # print(self.path)
+        # self.path = self.a_star_search()
         
     def __call__(self, agent):
-        # only trigger when we are the correct agent
-        assert (
-            agent == self.agent
-        ), f"A* Policy only applied to agent: {self.agent}, but got tag for {agent}."
         
         # if the goal color just switched re-search or agent just collected a block
         # TODO: Check whenever a block spawned (follower might have collected a block)

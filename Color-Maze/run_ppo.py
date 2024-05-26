@@ -135,7 +135,7 @@ class ActorCritic(nn.Module):
 
 def step(
         envs: Sequence[ParallelEnv],
-        models: Mapping[str, ActorCritic | AStarAgent],
+        models: Mapping[str, ActorCritic],
         optimizers: Mapping[str, optim.Optimizer],
         num_steps: int,
         batch_size: int,
@@ -220,12 +220,15 @@ def step(
         step_actions = {}
 
         for agent, model in models.items():
-            all_observations[agent][step] = next_observations[agent]
-            all_goal_info[agent][step] = next_goal_info[agent]
-            all_dones[agent][step] = next_dones[agent]
+            if a_star_leader and agent == 'leader':
+                action, _, _, _, _ = AStarAgent(next_observation_dicts["leader"], agent_id=0)
+            
+            else:     
+                all_observations[agent][step] = next_observations[agent]
+                all_goal_info[agent][step] = next_goal_info[agent]
+                all_dones[agent][step] = next_dones[agent]
 
-            with torch.no_grad():
-                if type(model) == ActorCritic:
+                with torch.no_grad():
                     action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
                         next_observations[agent],
                         next_goal_info[agent],
@@ -234,20 +237,14 @@ def step(
                     )
                     lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
                     lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
-
                     all_logprobs[agent][step] = logprob
                     all_values[agent][step] = value.flatten()
                     all_entropies[agent][step] = entropy.flatten().cpu().numpy()
-
-                elif type(model) == AStarAgent:
-                    
                     action = model(next_observations[agent], agent=agent)
-                else:
-                    raise ValueError(f"Unknown model type: {type(model)}")
-                
-                step_actions[agent] = action.cpu().numpy()
-                all_actions[agent][step] = action
-
+                    all_actions[agent][step] = action
+                    
+            step_actions[agent] = action.cpu().numpy()
+        
 
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
@@ -478,8 +475,8 @@ def train(
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
     if a_star_leader:
-        # leader = AStarAgent(envs[0])
-        # leader_optimizer = None
+        leader = AStarAgent(envs)
+        leader_optimizer = None
         frozen_leader = True
     else:
         leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
@@ -588,7 +585,8 @@ def train(
             block_penalty_coef=block_penalty_coef,
             sampling_temperature=sampling_temperature,
             goalinfo_loss_coef=goalinfo_loss_coef,
-            training_agents=training_agents
+            training_agents=training_agents,
+            a_star_leader=a_star_leader
         )
 
         metrics = {}
