@@ -155,7 +155,7 @@ def step(
         block_penalty_coef: float,
         sampling_temperature: float = 1.0,
         goalinfo_loss_coef: float = 0,
-        a_star_leader: bool = False
+        a_star_leader: bool = True
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -393,7 +393,7 @@ def train(
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,  # If True, configures the environment with a single agent.
-        a_star_leader: bool = False,  # If True, leader uses A*
+        a_star_leader: bool = True,  # If True, leader uses A*
         warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
         use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
@@ -417,7 +417,7 @@ def train(
         # PPO params
         total_timesteps: int = 500000,  # Total number of environment timesteps to run the PPO training loop for
         learning_rate: float = 1e-4,  # default set from "Emergent Social Learning via Multi-agent Reinforcement Learning"
-        num_envs: int = 4,  # Number of environments to collect rollouts in parallel
+        num_envs: int = 1,  # Number of environments to collect rollouts in parallel
         num_steps_per_rollout: int = 128,  # Number of steps in each rollout
         gamma: float = 0.99,  # discount factor
         gae_lambda: float = 0.95,  # lambda for general advantage estimation
