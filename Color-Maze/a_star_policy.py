@@ -19,6 +19,8 @@ class AStarAgent:
         assert (
             agent == self.agent
         ), f"A* Policy only applied to agent: {self.agent}, but got tag for {agent}."
+
+        print(self.env.render())
         
         # if the goal color just switched re-search or agent just collected a block
         # TODO: Check whenever a block spawned (follower might have collected a block)
