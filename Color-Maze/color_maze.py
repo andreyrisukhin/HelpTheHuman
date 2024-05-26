@@ -131,6 +131,13 @@ class ColorMazeRewards():
 
         return rewards
 
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    DEFAULT = '\033[0m'
+
 class ColorMaze(ParallelEnv):
     
     def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, 
@@ -513,12 +520,46 @@ class ColorMaze(ParallelEnv):
         truncateds = terminateds
         return observations, individual_rewards, terminateds, truncateds, infos
 
-    def render(self):
+    # def render(self):
+    #     """Render the environment."""
+    #     grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
+    #     grid[self.leader.x, self.leader.y] = "L"
+    #     if not self.leader_only:
+    #         grid[self.follower.x, self.follower.y] = "F"
+    #     for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
+    #         grid[x, y] = "R"
+    #     for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
+    #         grid[x, y] = "G"
+    #     for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
+    #         grid[x, y] = "B"
+
+    #     # Flip it so y is increasing upwards
+    #     grid = np.flipud(grid.T)
+    #     rendered = ""
+    #     for row in grid:
+    #         rendered += "".join(row) + "\n"
+    #     print(rendered)
+
+    def print_with_goal_color(self, element, goal_index):
+        """Print the element with color if it matches the goal index."""
+        if element == "L":
+            print(f"{Colors.YELLOW}{element}{Colors.DEFAULT}", end="")
+        elif element == "F":
+            print(f"{Colors.YELLOW}{element}{Colors.DEFAULT}", end="")
+        elif element == "R" and goal_index == IDs.RED.value:
+            print(f"{Colors.RED}{element}{Colors.DEFAULT}", end="")
+        elif element == "G" and goal_index == IDs.GREEN.value:
+            print(f"{Colors.GREEN}{element}{Colors.DEFAULT}", end="")
+        elif element == "B" and goal_index == IDs.BLUE.value:
+            print(f"{Colors.BLUE}{element}{Colors.DEFAULT}", end="")
+        else:
+            print(element, end="")
+
+    def render(self, current_goal=None):
         """Render the environment."""
         grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
-        grid[self.leader.x, self.leader.y] = "L"
-        if not self.leader_only:
-            grid[self.follower.x, self.follower.y] = "F"
+        leader_symbol = "L"
+        follower_symbol = "F"
         for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
             grid[x, y] = "R"
         for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
@@ -526,9 +567,44 @@ class ColorMaze(ParallelEnv):
         for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
             grid[x, y] = "B"
 
+        leader_x, leader_y = self.leader.x, self.leader.y
+        grid[leader_x, leader_y] = leader_symbol
+        if not self.leader_only:
+            grid[self.follower.x, self.follower.y] = follower_symbol
+
+        # If current_goal is provided, highlight it in its color
+        if current_goal is not None:
+            for x, y in np.argwhere(self.blocks[current_goal].cpu().numpy()):
+                self.print_with_goal_color(grid[x, y], current_goal)
+
         # Flip it so y is increasing upwards
         grid = np.flipud(grid.T)
-        rendered = ""
         for row in grid:
-            rendered += "".join(row) + "\n"
-        print(rendered)
+            for element in row:
+                self.print_with_goal_color(element, current_goal)
+            print()  # Print newline after each row
+
+
+
+    # def render(self):
+    #     """Render the environment."""
+    #     grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
+    #     # grid[self.leader.x, self.leader.y] = "L"
+    #     grid[self.leader.x, self.leader.y] = f"{Colors.YELLOW}L"  # Yellow leader
+    #     if not self.leader_only:
+    #         grid[self.follower.x, self.follower.y] = "F"
+    #     for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
+    #         grid[x, y] = "R"
+    #     for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
+    #         grid[x, y] = "G"
+    #     for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
+    #         grid[x, y] = "B"
+
+    #     # Flip it so y is increasing upwards
+    #     grid = np.flipud(grid.T)
+    #     rendered = ""
+    #     for row in grid:
+    #         rendered += "".join(row) + "\n"
+    #     print(rendered)
+
+
