@@ -109,7 +109,7 @@ class ColorMazeRewards():
 
     def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs, incorrect_penalty_coef: float = 1, **kwargs):
         '''Reward the leader and follower based on their proximity to goal and incorrect blocks. Inspired by (+), (-) electric potential.'''
-        incorrect_discount_factor = 0.5 # There are twice as many incorrect as correct blocks.
+        incorrect_penalty_coef = abs(incorrect_penalty_coef)
         discount_factor = 0.2 # The most rewarding* spot (surrounded by 4) is less rewarding than one goal block pickup.
         # *Technically, surrounded by infinitely many goal blocks is most rewarding. Do the math to tune later, this is unlikely and we have 48 hours.
         leader = agents["leader"]
@@ -132,8 +132,8 @@ class ColorMazeRewards():
         leader_y_rep = np.full_like(incorrect_positions_y, leader.y)
         follower_x_rep = np.full_like(incorrect_positions_x, follower.x)
         follower_y_rep = np.full_like(incorrect_positions_y, follower.y)
-        rewards["leader"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
-        rewards["follower"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
+        rewards["leader"] -= incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
+        rewards["follower"] -= incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
 
         return rewards
 
@@ -470,8 +470,8 @@ class ColorMaze(ParallelEnv):
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.negative_reward)
-            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.negative_reward)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty_coef)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty_coef)
 
         # Check termination conditions
         termination = False
