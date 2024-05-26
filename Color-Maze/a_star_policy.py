@@ -10,25 +10,30 @@ class AStarAgent:
         self.agent_id = agent_id
         self.agent = self.env.agents[self.agent_id]
         self.show_obs = show_obs
-        self.path = None
-
-    def __call__(self, observation, agent):
+        self.goal_block_color = None
+        self.path = self.a_star_search()
+        # print(self.path)
+        
+    def __call__(self, agent):
         # only trigger when we are the correct agent
         assert (
             agent == self.agent
         ), f"A* Policy only applied to agent: {self.agent}, but got tag for {agent}."
+        
+        # if the goal color just switched re-search or agent just collected a block
+        # TODO: Check whenever a block spawned (follower might have collected a block)
+        # if self.goal_block_color != self.env.goal_block or (self.env.leader.x == self.target[0] and self.env.leader.y == self.target[1]):
+        #     self.path = self.a_star_search()
+        #     print(self.path)
+        #     self.goal_block_color = self.env.goal_block
+        #     assert self.path, "No path found"
+        # else:
+        #     self.path = self.path[1:]
+            
+        self.path = self.a_star_search()
+        # print(self.path)
 
-        # if the path is empty or the goal color just switched or the agent just collected a block
-        # breakpoint()
-        # TODO: Define self.env.goal_block_prev and self.env.leader.collected_block in ColorMaze or determine way to
-        # pass information into a_star_policy and make methods to handle it
-        if not self.path or self.env.goal_block != self.env.goal_block_prev or self.env.leader.collected_block:
-            self.path = self.a_star_search()
-            breakpoint()
-            self.env.goal_block_prev = self.env.goal_block
-            assert self.path, "No path found"
-
-        return self.get_next_action(self.path)
+        return self.get_next_action()
 
     def heuristic(self, leader_pos, goal_pos):
         """
@@ -42,10 +47,11 @@ class AStarAgent:
         """
         blocks = self.env.blocks
         start_pos = torch.tensor([self.env.leader.x, self.env.leader.y], device=self.env.device)
-        print(start_pos)
+        # print(start_pos)
         goal_block = self.env.goal_block.value
         goal_positions = torch.nonzero(blocks[goal_block] == 1, as_tuple=True)
-
+        # breakpoint()
+        
         # Inv: There should always be correct blocks
         if len(goal_positions[0]) == 0:
             assert False, "No correct blocks found"
@@ -55,6 +61,8 @@ class AStarAgent:
         goal_dists = self.heuristic(start_pos.repeat(goal_positions_tensor.shape[0], 1), goal_positions_tensor)
         closest_goal_idx = torch.argmin(goal_dists)
         goal_pos = goal_positions_tensor[closest_goal_idx]
+        # convert goal_pos to tuple
+        self.target = tuple(goal_pos.tolist())
 
         # Initialize the open and closed sets
         open_set = [(0 + self.heuristic(start_pos, goal_pos).item(), start_pos.tolist(), [])]
@@ -83,7 +91,16 @@ class AStarAgent:
                 neighbor_pos = torch.tensor(neighbor, dtype=torch.long, device=self.env.device)
                 # Check if the neighbor is within the boundaries and not a wall
                 if self.env.leader.is_legal(neighbor_pos[0].item(), neighbor_pos[1].item()):
-                    new_cost = current_cost - self.heuristic(torch.tensor(current_pos, device=self.env.device), goal_pos).item() + 1 + self.heuristic(neighbor_pos, goal_pos).item()
+                    
+                    # if neighbor_pos isn't a goal block, penalize
+                    penalize = False
+                    for penalty_color in set((IDs.BLUE, IDs.RED, IDs.GREEN)) - set((self.env.goal_block, )):
+                        if self.env.blocks[penalty_color.value][neighbor_pos[0], neighbor_pos[1]] == 1:
+                            new_cost = 999999
+                            penalize = True
+                        
+                    if not penalize:
+                        new_cost = current_cost - self.heuristic(torch.tensor(current_pos, device=self.env.device), goal_pos).item() + 1 + self.heuristic(neighbor_pos, goal_pos).item()
                     new_path = current_path + [tuple(neighbor_pos.tolist())]
 
                     # Check if the neighbor is in the closed set or the open set
@@ -103,36 +120,35 @@ class AStarAgent:
         # Inv: Path should never be empty
         assert False, "No path found"
 
-    def get_next_action(self, path):
+    def get_next_action(self):
         """
         Converts the path into a sequence of actions
         """
         actions = []
         # if path only has one element, return that element
-        if len(path) == 1:
-            x1, y1 = path[0]
-            x2, y2 = self.env.leader.x, self.env.leader.y
-            if x2 > x1:
-                return Moves.RIGHT.value
-            elif x2 < x1:
-                return Moves.LEFT.value
-            elif y2 > y1:
-                return Moves.DOWN.value
-            else:
-                return Moves.UP.value
+        # if len(self.path) == 1:
+        x1, y1 = self.env.leader.x, self.env.leader.y
+        x2, y2 = self.path[0]
+        if x1 < x2:
+            return Moves.RIGHT.value
+        elif x1 > x2:
+            return Moves.LEFT.value
+        elif y1 < y2:
+            return Moves.UP.value
+        else:
+            return Moves.DOWN.value
         
-        for i in range(1, len(path)):
-            x1, y1 = path[i - 1]
-            x2, y2 = path[i]
-            breakpoint()
-            if x2 > x1:
-                actions.append(Moves.RIGHT.value)
-            elif x2 < x1:
-                actions.append(Moves.LEFT.value)
-            elif y2 > y1:
-                actions.append(Moves.DOWN.value)
-            else:
-                actions.append(Moves.UP.value)
+        # for i in range(len(self.path)):
+        #     x1, y1 = self.path[i - 1]
+        #     x2, y2 = self.path[i]
+        #     if x2 > x1:
+        #         actions.append(Moves.RIGHT.value)
+        #     elif x2 < x1:
+        #         actions.append(Moves.LEFT.value)
+        #     elif y2 > y1:
+        #         actions.append(Moves.DOWN.value)
+        #     else:
+        #         actions.append(Moves.UP.value)
 
         self.actions = actions
         

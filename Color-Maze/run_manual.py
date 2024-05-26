@@ -8,11 +8,10 @@ from a_star_policy import AStarAgent
 
 if __name__ == "__main__":
     os.system('cls' if os.name == 'nt' else 'clear')
-    env = ColorMaze(is_unique_hemispheres_env=False, nonstationary=False)
+    env = ColorMaze(is_unique_hemispheres_env=False, block_swap_prob=0.25)
     observations, _ = env.reset(seed=42)
     a_star_policy = AStarAgent(env, agent_id=0)
     manual_policy_1 = ManualPolicy(env, agent_id=1)
-    # manual_policy_2 = ManualPolicy(env, agent_id=1)
     env.render()
     print(env.goal_block)
     score = 0
