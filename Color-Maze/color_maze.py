@@ -572,6 +572,8 @@ class ColorMaze(ParallelEnv):
         if not self.leader_only:
             grid[self.follower.x, self.follower.y] = follower_symbol
 
+        current_goal = self.goal_block.value
+
         # If current_goal is provided, highlight it in its color
         if current_goal is not None:
             for x, y in np.argwhere(self.blocks[current_goal].cpu().numpy()):
@@ -584,7 +586,9 @@ class ColorMaze(ParallelEnv):
                 self.print_with_goal_color(element, current_goal)
             print()  # Print newline after each row
 
-
+    def set_goal_block(self, goal_block: IDs):
+        """Set the goal block for the environment. Used by render only!!! Dangerous otherwise."""
+        self.goal_block = goal_block
 
     # def render(self):
     #     """Render the environment."""

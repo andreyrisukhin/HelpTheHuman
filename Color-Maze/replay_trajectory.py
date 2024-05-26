@@ -35,9 +35,10 @@ def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = Non
         obs = trajectory[step]
         print(f"Step {step}:")
         env.set_state_to_observation(obs)
-        env.render()
         if goal_info is not None:
             goal_idx = np.argmax(goal_info[step])
+            env.set_goal_block(IDs(goal_idx))
+            env.render()
             print(f'Current goal: {print_goal_with_color(goal_idx)}')
         input("Press any key to continue:")
 
