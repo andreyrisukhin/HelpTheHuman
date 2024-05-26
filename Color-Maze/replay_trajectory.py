@@ -3,6 +3,27 @@ from fire import Fire
 
 from color_maze import ColorMaze, IDs
 
+# ANSI color codes
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    DEFAULT = '\033[0m'
+
+# goal_string = f'{colors.IDs(goal_idx)}{goal_idx}{colors.DEFAULT'
+
+# Function to print text with color based on the goal index
+def print_goal_with_color(goal_idx):
+    if goal_idx == IDs.RED.value:
+        color = Colors.RED
+    elif goal_idx == IDs.BLUE.value:
+        color = Colors.BLUE
+    elif goal_idx == IDs.GREEN.value:
+        color = Colors.GREEN
+    else:
+        color = Colors.DEFAULT  # Default color if goal index doesn't match known colors
+    return color + str(IDs(goal_idx).name) + Colors.DEFAULT
 
 def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = None):
     assert trajectory.ndim == 4  # (minibatch_step, channel, height, width) 
@@ -17,7 +38,7 @@ def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = Non
         env.render()
         if goal_info is not None:
             goal_idx = np.argmax(goal_info[step])
-            print(f'Current goal: {IDs(goal_idx)}')
+            print(f'Current goal: {print_goal_with_color(goal_idx)}')
         input("Press any key to continue:")
 
 
