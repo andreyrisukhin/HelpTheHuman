@@ -10,4 +10,4 @@ Color-Maze/
 
 Other files are under development and are not guaranteed to work.
 
-Our best leader checkpoint is [here](https://drive.google.com/file/d/1LqpaQgnTDyTYe5O4gT-kjOWAtPgystNn/view?usp=drive_link), which uses the LSTM variant of our architecture.
+Our best leader checkpoint is [here](https://drive.google.com/file/d/1I1tXXkG3BAP9SraG0oY3uooUVqbuNkOb/view?usp=drive_link), which uses the LSTM variant of our architecture.
