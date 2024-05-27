@@ -10,7 +10,6 @@ from fire import Fire
 from tqdm import tqdm
 import os
 from pettingzoo import ParallelEnv
-from a_star_policy import AStarAgent
 
 from color_maze import ColorMaze, ColorMazeRewards, NUM_COLORS
 
@@ -155,7 +154,6 @@ def step(
         block_penalty_coef: float,
         sampling_temperature: float = 1.0,
         goalinfo_loss_coef: float = 0,
-        a_star_leader: bool = False
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -220,31 +218,25 @@ def step(
         step_actions = {}
 
         for agent, model in models.items():
-            if a_star_leader and agent == 'leader':
-                action, _, _, _, _ = AStarAgent(next_observation_dicts["leader"], agent_id=0)
-            
-            else:     
-                all_observations[agent][step] = next_observations[agent]
-                all_goal_info[agent][step] = next_goal_info[agent]
-                all_dones[agent][step] = next_dones[agent]
+            all_observations[agent][step] = next_observations[agent]
+            all_goal_info[agent][step] = next_goal_info[agent]
+            all_dones[agent][step] = next_dones[agent]
 
-                with torch.no_grad():
-                    action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
-                        next_observations[agent],
-                        next_goal_info[agent],
-                        prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
-                        sampling_temperature=sampling_temperature
-                    )
-                    lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
-                    lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
-                    all_logprobs[agent][step] = logprob
-                    all_values[agent][step] = value.flatten()
-                    all_entropies[agent][step] = entropy.flatten().cpu().numpy()
-                    action = model(next_observations[agent], agent=agent)
-                    all_actions[agent][step] = action
-                    
-            step_actions[agent] = action.cpu().numpy()
-        
+            with torch.no_grad():
+                action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
+                    next_observations[agent],
+                    next_goal_info[agent],
+                    prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
+                    sampling_temperature=sampling_temperature
+                )
+                step_actions[agent] = action.cpu().numpy()
+                lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
+                lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
+
+                all_actions[agent][step] = action
+                all_logprobs[agent][step] = logprob
+                all_values[agent][step] = value.flatten()
+                all_entropies[agent][step] = entropy.flatten().cpu().numpy()
 
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
@@ -391,7 +383,6 @@ def train(
         resume_iter: int | None = None,  # The iteration from the run to resume. Will look for checkpoints in the folder corresponding to run_name.
         resume_wandb_id: str | None = None,  # W&B run ID to resume from. Required if providing resume_iter.
         leader_only: bool = False,  # If True, configures the environment with a single agent.
-        a_star_leader: bool = False,  # If True, leader uses A*
         warmstart_leader_path: str | None = None,  # If provided, loads an existing leader checkpoint at the start
         warmstart_follower_path: str | None = None,  # If provided, loads an existing follower checkpoint at the start
         use_lstm: bool = False,  # Whether to use an LSTM in the network architecture
@@ -504,14 +495,8 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
-    if a_star_leader:
-        leader = AStarAgent(envs)
-        leader_optimizer = None
-        frozen_leader = True
-    else:
-        leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
-        leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
-        
+    leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
+    leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
     if leader_only:
         models = {'leader': leader}
         optimizers = {'leader': leader_optimizer}
@@ -615,8 +600,7 @@ def train(
             block_penalty_coef=block_penalty_coef,
             sampling_temperature=sampling_temperature,
             goalinfo_loss_coef=goalinfo_loss_coef,
-            training_agents=training_agents,
-            a_star_leader=a_star_leader
+            training_agents=training_agents
         )
 
         metrics = {}
