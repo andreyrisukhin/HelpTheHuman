@@ -1,8 +1,8 @@
 import heapq
 import numpy as np
-from color_maze import Moves, IDs
+# from color_maze import Moves, IDs
+import color_maze
 import torch
-
 
 def heuristic(agent_pos, goal_pos):
         """
@@ -63,7 +63,7 @@ def a_star_search(env, agent):
                 
                 # if neighbor_pos isn't a goal block, penalize
                 penalize = False
-                for penalty_color in set((IDs.BLUE, IDs.RED, IDs.GREEN)) - set((env.goal_block, )):
+                for penalty_color in set((color_maze.IDs.BLUE, color_maze.IDs.RED, color_maze.IDs.GREEN)) - set((env.goal_block, )):
                     if blocks[penalty_color.value][neighbor_pos[0], neighbor_pos[1]] == 1:
                         new_cost = 999999
                         penalize = True
@@ -88,64 +88,54 @@ def a_star_search(env, agent):
 
     # Inv: Path should never be empty
     assert False, "No path found"
-
-class AStarLeader:
-    "Uses A* search to find the shortest path to the closest correct block for the leader."
-    def __init__(self):
-        self.goal_block_color = None
-
-    def __call__(self, env, agent):
-        
-        # only the leader can use this policy
-        assert (
-            agent == env.agents[0]
-        ), "AStarLeader can only be applied to leader."
-        
-        # if the goal color just switched re-search or agent just collected a block
-        # TODO: Check whenever a block spawned (follower might have collected a block)
-        # if self.goal_block_color != self.env.goal_block or (self.env.leader.x == self.target[0] and self.env.leader.y == self.target[1]):
-        #     self.path = self.a_star_search()
-        #     print(self.path)
-        #     self.goal_block_color = self.env.goal_block
-        #     assert self.path, "No path found"
-        # else:
-        #     self.path = self.path[1:]
-            
-        path = a_star_search(env, agent)
-        # print(self.path)
-
-        x1, y1 = agent.x, agent.y
-        x2, y2 = path[0]
-        if x1 < x2:
-            return Moves.RIGHT.value
-        elif x1 > x2:
-            return Moves.LEFT.value
-        elif y1 < y2:
-            return Moves.UP.value
-        else:
-            return Moves.DOWN.value
     
-class CopyFollower:
-    "Copies AStarLeader policy but doesn't know the goal block until after the leader moves."
-    def __init__(self):
-        self.goal_block_color = None
+def get_move(cur_pos, next_cell):
+    x1, y1 = cur_pos
+    x2, y2 = next_cell
+    if x1 < x2:
+        return color_maze.Moves.RIGHT.value
+    elif x1 > x2:
+        return color_maze.Moves.LEFT.value
+    elif y1 < y2:
+        return color_maze.Moves.UP.value
+    else:
+        return color_maze.Moves.DOWN.value
 
-    def __call__(self, env, agent):
-        agent = self.env.agents[self.agent_id]
-        # only the leader can use this policy
-        assert (
-            agent == env.agents[1]
-        ), "CopyFollower can only be applied to leader."
+class AStarAgent:
+    "Uses A* search to find the shortest path to the closest correct block for the leader."
+    def __init__(self, initial_goal_block_color=None):
+        self.goal_block_color = initial_goal_block_color
+        
+    def __call__(self, env, agent):         
+        cur_pos = agent.x, agent.y
+        if self.goal_block_color == None:
+            # check if the surrounding blocks are empty
+            blocks = env.blocks
             
-        path = a_star_search(env, agent)
+            neighbors = [
+                (cur_pos[0], cur_pos[1] + 1),
+                (cur_pos[0], cur_pos[1] - 1),
+                (cur_pos[0] + 1, cur_pos[1]),
+                (cur_pos[0] - 1, cur_pos[1]),
+            ]
 
-        x1, y1 = agent.x, agent.y
-        x2, y2 = path[0]
-        if x1 < x2:
-            return Moves.RIGHT.value
-        elif x1 > x2:
-            return Moves.LEFT.value
-        elif y1 < y2:
-            return Moves.UP.value
-        else:
-            return Moves.DOWN.value
+            for neighbor in neighbors:
+                neighbor_pos = torch.tensor(neighbor, dtype=torch.long, device=env.device)
+                # Check if the neighbor is within the boundaries and not a wall
+                if agent.is_legal(neighbor_pos[0].item(), neighbor_pos[1].item()):
+                    # Check if neighbor is an empty cell
+                    neighbor_is_empty = True
+                    for block_id in color_maze.IDs.RED, color_maze.IDs.BLUE, color_maze.IDs.GREEN:
+                        if blocks[block_id.value][neighbor_pos[0], neighbor_pos[1]] == 1:
+                            neighbor_is_empty = False
+                            break
+
+                    if neighbor_is_empty:
+                        return get_move(cur_pos, neighbor_pos)
+                
+            # random move if all four neighbors are not empty
+            return np.random.choice([color_maze.Moves.UP.value, color_maze.Moves.DOWN.value, color_maze.Moves.LEFT.value, color_maze.Moves.RIGHT.value])
+        
+        next_cell = a_star_search(env, agent)[0] # we only need the next step to move
+        # TODO for later: only run a_star_search if the goal color just switched or a block was just picked up
+        return get_move(cur_pos, next_cell)

@@ -13,9 +13,7 @@ if __name__ == "__main__":
     a_star_policy = AStarAgent(env, agent_id=0)
     manual_policy_1 = ManualPolicy(env, agent_id=1)
     env.render()
-    print(env.goal_block)
     score = 0
-
     steps_per_rollout = 128
     step = 0
 
@@ -26,8 +24,6 @@ if __name__ == "__main__":
         }
         observations, rewards, _, _, _ = env.step(actions)
         score += rewards['leader']
-        # don't we want score += rewards['follower'] as well?
-
         os.system('cls' if os.name == 'nt' else 'clear')
         env.render()
         print(f'Score: {score} | Goal: {env.goal_block} | Step: {step}/{steps_per_rollout} | Reward Shaping: {env.reward_shaping_fns}') # The reward functions will probably not print nicely. TODO print their names.

@@ -134,7 +134,7 @@ class ColorMazeRewards():
 
 class ColorMaze(ParallelEnv):
     
-    def __init__(self, seed=None, leader_only: bool = False, a_star_leader: bool = False, copy_follower: bool = False, block_density: float = 0.10, asymmetric: bool = False, 
+    def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, 
                  nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, 
                  is_unique_hemispheres_env:bool=False, device: str = 'cuda', 
                  positive_reward: float = 1.0, negative_reward: float = -1.0):
@@ -170,8 +170,6 @@ class ColorMaze(ParallelEnv):
 
         # Agents
         self.leader_only = leader_only
-        self.a_star_leader = a_star_leader
-        self.copy_follower = copy_follower
         if leader_only:
             self.possible_agents:List[str] = ["leader"]
             self.agents:List[str] = copy(self.possible_agents)
@@ -179,11 +177,6 @@ class ColorMaze(ParallelEnv):
         else:
             self.possible_agents:List[str] = ["leader", "follower"]
             self.agents:List[str] = copy(self.possible_agents)
-            if a_star_leader:
-                self.leader = AStarAgent(self)
-                
-            
-                
             self.leader = Agent(Boundary.x1.value, Boundary.y1.value, x_limit_low=Boundary.x1.value, x_limit_high=self.leader_x_max_boundary, y_limit_low=Boundary.y1.value, y_limit_high=Boundary.y2.value)
             self.follower = Agent(Boundary.x2.value, Boundary.y2.value, x_limit_low=self.follower_x_min_boundary, x_limit_high=Boundary.x2.value, y_limit_low=Boundary.y1.value, y_limit_high=Boundary.y2.value)
         self.asymmetric = asymmetric
