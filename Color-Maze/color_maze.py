@@ -17,7 +17,6 @@ from typing import Callable, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
 from copy import copy, deepcopy
-from a_star_policy import AStarAgent
 
 
 class Moves(Enum):
@@ -48,12 +47,6 @@ class IDs(Enum):
     LEADER = 3
     FOLLOWER = 4
 
-class Colors:
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    DEFAULT = '\033[0m'
 
 @dataclass 
 class Agent:
@@ -110,7 +103,7 @@ class ColorMazeRewards():
 
     def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs, incorrect_penalty_coef: float = 1, **kwargs):
         '''Reward the leader and follower based on their proximity to goal and incorrect blocks. Inspired by (+), (-) electric potential.'''
-        incorrect_penalty_coef = abs(incorrect_penalty_coef)
+        incorrect_discount_factor = 0.5 # There are twice as many incorrect as correct blocks.
         discount_factor = 0.2 # The most rewarding* spot (surrounded by 4) is less rewarding than one goal block pickup.
         # *Technically, surrounded by infinitely many goal blocks is most rewarding. Do the math to tune later, this is unlikely and we have 48 hours.
         leader = agents["leader"]
@@ -133,8 +126,8 @@ class ColorMazeRewards():
         leader_y_rep = np.full_like(incorrect_positions_y, leader.y)
         follower_x_rep = np.full_like(incorrect_positions_x, follower.x)
         follower_y_rep = np.full_like(incorrect_positions_y, follower.y)
-        rewards["leader"] -= incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
-        rewards["follower"] -= incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
+        rewards["leader"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
+        rewards["follower"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
 
         return rewards
 
@@ -143,9 +136,7 @@ class ColorMaze(ParallelEnv):
     def __init__(self, seed=None, leader_only: bool = False, block_density: float = 0.10, asymmetric: bool = False, 
                  nonstationary: bool = True, reward_shaping_fns: list[Callable]=[], block_swap_prob:float = 2/3*1/32, 
                  is_unique_hemispheres_env:bool=False, device: str = 'cuda', 
-                 red_reward_mean: float = 1.0, blue_reward_mean: float = 1.0, green_reward_mean: float = 1.0,
-                 red_reward_var: float = 1.0, blue_reward_var: float = 1.0, green_reward_var: float = 1.0,
-    ):
+                 positive_reward: float = 1.0, negative_reward: float = -1.0):
         """Initializes the environment's random seed and sets up the environment.
 
         reward_shaping_fns: List of reward shaping function to be applied. The caller will need to import ColorMazeRewards and pass the functions from here.
@@ -164,8 +155,8 @@ class ColorMaze(ParallelEnv):
         self.goal_switched = False
         self.block_penalty_coef = 1
         self.nonstationary = nonstationary
-        self.reward_means = [abs(red_reward_mean), abs(blue_reward_mean), abs(green_reward_mean)]
-        self.reward_vars = [red_reward_var, blue_reward_var, green_reward_var]
+        self.negative_reward = negative_reward
+        self.positive_reward = positive_reward
 
         self.is_unique_hemispheres_env = is_unique_hemispheres_env 
         # When True: leader can only exist in left env side, x in [0, xBoundary // 2]. Follower x in [xBoundary // 2, xBoundary].
@@ -438,22 +429,14 @@ class ColorMaze(ParallelEnv):
             individual_rewards[agent] = 0
 
             if self.blocks[self.goal_block.value, x, y]:
-                if self.reward_vars[self.goal_block.value] == 0:
-                    shared_reward += self.reward_means[self.goal_block.value]
-                    individual_rewards[agent] += self.reward_means[self.goal_block.value]
-                else:
-                    shared_reward += self.rng.normal(loc=self.reward_means[self.goal_block.value], scale=self.reward_vars[self.goal_block.value])
-                    individual_rewards[agent] += self.rng.normal(loc=self.reward_means[self.goal_block.value], scale=self.reward_vars[self.goal_block.value])
+                shared_reward += self.positive_reward
+                individual_rewards[agent] += self.positive_reward
                 self._consume_and_spawn_block(self.goal_block.value, x, y, self.blocks)
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
-                        if self.reward_vars[non_reward_block_idx] == 0:
-                            shared_reward -= self.reward_means[non_reward_block_idx] * self.block_penalty_coef
-                            individual_rewards[agent] -= self.reward_means[non_reward_block_idx] * self.block_penalty_coef
-                        else:
-                            shared_reward -= self.rng.normal(loc=self.reward_means[non_reward_block_idx], scale=self.reward_vars[non_reward_block_idx]) * self.block_penalty_coef
-                            individual_rewards[agent] -= self.rng.normal(loc=self.reward_means[non_reward_block_idx], scale=self.reward_vars[non_reward_block_idx]) * self.block_penalty_coef
+                        shared_reward += self.negative_reward * self.block_penalty_coef
+                        individual_rewards[agent] += self.negative_reward * self.block_penalty_coef
                         self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
                         break  # Can't step on two non-rewarding blocks at once
 
@@ -471,8 +454,8 @@ class ColorMaze(ParallelEnv):
 
         # Apply reward shaping
         for reward_shaping_function in self.reward_shaping_fns:
-            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty_coef)
-            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.block_penalty_coef)
+            rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.negative_reward)
+            individual_rewards = reward_shaping_function(dict({'leader': self.leader, 'follower': self.follower}), individual_rewards, blocks=self.blocks, goal_block=self.goal_block, incorrect_penalty_coef=self.negative_reward)
 
         # Check termination conditions
         termination = False
@@ -520,26 +503,12 @@ class ColorMaze(ParallelEnv):
         truncateds = terminateds
         return observations, individual_rewards, terminateds, truncateds, infos
 
-    def print_with_goal_color(self, element, goal_index):
-        """Print the element with color if it matches the goal index."""
-        if element == "L":
-            print(f"{Colors.YELLOW}{element}{Colors.DEFAULT}", end="")
-        elif element == "F":
-            print(f"{Colors.YELLOW}{element}{Colors.DEFAULT}", end="")
-        elif element == "R" and goal_index == IDs.RED.value:
-            print(f"{Colors.RED}{element}{Colors.DEFAULT}", end="")
-        elif element == "G" and goal_index == IDs.GREEN.value:
-            print(f"{Colors.GREEN}{element}{Colors.DEFAULT}", end="")
-        elif element == "B" and goal_index == IDs.BLUE.value:
-            print(f"{Colors.BLUE}{element}{Colors.DEFAULT}", end="")
-        else:
-            print(element, end="")
-
-    def render(self, current_goal=None):
+    def render(self):
         """Render the environment."""
         grid = np.full((Boundary.x2.value + 1, Boundary.y2.value + 1), ".")
-        leader_symbol = "L"
-        follower_symbol = "F"
+        grid[self.leader.x, self.leader.y] = "L"
+        if not self.leader_only:
+            grid[self.follower.x, self.follower.y] = "F"
         for x, y in np.argwhere(self.blocks[IDs.RED.value].cpu().numpy()):
             grid[x, y] = "R"
         for x, y in np.argwhere(self.blocks[IDs.GREEN.value].cpu().numpy()):
@@ -547,28 +516,9 @@ class ColorMaze(ParallelEnv):
         for x, y in np.argwhere(self.blocks[IDs.BLUE.value].cpu().numpy()):
             grid[x, y] = "B"
 
-        leader_x, leader_y = self.leader.x, self.leader.y
-        grid[leader_x, leader_y] = leader_symbol
-        if not self.leader_only:
-            grid[self.follower.x, self.follower.y] = follower_symbol
-
-        current_goal = self.goal_block.value
-
-        # If current_goal is provided, highlight it in its color
-        if current_goal is not None:
-            for x, y in np.argwhere(self.blocks[current_goal].cpu().numpy()):
-                self.print_with_goal_color(grid[x, y], current_goal)
-
         # Flip it so y is increasing upwards
         grid = np.flipud(grid.T)
+        rendered = ""
         for row in grid:
-            for element in row:
-                self.print_with_goal_color(element, current_goal)
-            print()  # Print newline after each row
-
-    def set_goal_block(self, goal_block: IDs):
-        """Set the goal block for the environment. Used by render only!!! Dangerous otherwise."""
-        self.goal_block = goal_block
-
-
-
+            rendered += "".join(row) + "\n"
+        print(rendered)
