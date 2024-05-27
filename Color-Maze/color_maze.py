@@ -17,6 +17,7 @@ from typing import Callable, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
 from copy import copy, deepcopy
+from a_star_policy import AStarAgent
 
 
 class Moves(Enum):
