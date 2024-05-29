@@ -98,36 +98,42 @@ class ColorMazeRewards():
         '''d=0 -> reward=0'''
         '''d=1 -> reward=1/2'''
         '''d=2 -> reward=1/3''' # If harmonic reward does not work, try something steeper.
-        distance = np.abs(x1 - x2) + np.abs(y1 - y2)
+        distance = torch.abs(x1 - x2) + torch.abs(y1 - y2)
         return 1 / (distance + 1)
 
-    def potential_field(self, agents: dict[str, Agent], rewards, blocks: np.ndarray, goal_block: IDs, incorrect_penalty_coef: float = 1, **kwargs):
+    def potential_field(self, agents: dict[str, Agent], rewards, blocks: torch.Tensor, goal_block: IDs, incorrect_penalty_coef: float = 1, **kwargs):
         '''Reward the leader and follower based on their proximity to goal and incorrect blocks. Inspired by (+), (-) electric potential.'''
+        assert isinstance(blocks, torch.Tensor)
         incorrect_discount_factor = 0.5 # There are twice as many incorrect as correct blocks.
         discount_factor = 0.2 # The most rewarding* spot (surrounded by 4) is less rewarding than one goal block pickup.
         # *Technically, surrounded by infinitely many goal blocks is most rewarding. Do the math to tune later, this is unlikely and we have 48 hours.
         leader = agents["leader"]
         follower = agents["follower"]
-        goal_positions = np.argwhere(blocks[goal_block.value] == 1) # Returns an array of [x,y] arrays. # TODO check that x, y are not being misinterpreted. #.flatten()
+        # breakpoint()
+        # goal_positions = np.argwhere(blocks[goal_block.value] == 1) # Returns an array of [x,y] arrays. # TODO check that x, y are not being misinterpreted. #.flatten()
+        goal_positions = torch.nonzero(blocks[goal_block.value] == 1, as_tuple=False)
+        # TODO convert numpy to tensors
         goal_positions_x = goal_positions[:, 0]
         goal_positions_y = goal_positions[:, 1]
-        leader_x_rep = np.full_like(goal_positions_x, leader.x)
-        leader_y_rep = np.full_like(goal_positions_y, leader.y)
-        follower_x_rep = np.full_like(goal_positions_x, follower.x)
-        follower_y_rep = np.full_like(goal_positions_y, follower.y)
-        rewards["leader"] += np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, goal_positions_x, goal_positions_y) * discount_factor)
-        rewards["follower"] += np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, goal_positions_x, goal_positions_y) * discount_factor)
+        leader_x_rep = torch.full_like(goal_positions_x, leader.x)
+        leader_y_rep = torch.full_like(goal_positions_y, leader.y)
+        follower_x_rep = torch.full_like(goal_positions_x, follower.x)
+        follower_y_rep = torch.full_like(goal_positions_y, follower.y)
+        
+        rewards["leader"] += torch.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, goal_positions_x, goal_positions_y) * discount_factor).item()
+        rewards["follower"] += torch.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, goal_positions_x, goal_positions_y) * discount_factor).item() # What is item? ChatGPT suggestion
         
         # Now, get incorrect positions (all other slices of 'blocks' except goal_block == 1)
-        incorrect_positions = np.argwhere(np.any(blocks[:goal_block.value] == 1, axis=0) | np.any(blocks[goal_block.value + 1:] == 1, axis=0))
+        incorrect_positions = torch.nonzero(torch.any(blocks[:goal_block.value] == 1, dim=0) | torch.any(blocks[goal_block.value + 1:] == 1, dim=0), as_tuple=False)
+        
         incorrect_positions_x = incorrect_positions[:, 0]
         incorrect_positions_y = incorrect_positions[:, 1]
-        leader_x_rep = np.full_like(incorrect_positions_x, leader.x)
-        leader_y_rep = np.full_like(incorrect_positions_y, leader.y)
-        follower_x_rep = np.full_like(incorrect_positions_x, follower.x)
-        follower_y_rep = np.full_like(incorrect_positions_y, follower.y)
-        rewards["leader"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
-        rewards["follower"] += incorrect_penalty_coef * np.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor)
+        leader_x_rep = torch.full_like(incorrect_positions_x, leader.x)
+        leader_y_rep = torch.full_like(incorrect_positions_y, leader.y)
+        follower_x_rep = torch.full_like(incorrect_positions_x, follower.x)
+        follower_y_rep = torch.full_like(incorrect_positions_y, follower.y)
+        rewards["leader"] += incorrect_penalty_coef * torch.sum(self._harmonic_distance_reward(leader_x_rep, leader_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor).item()
+        rewards["follower"] += incorrect_penalty_coef * torch.sum(self._harmonic_distance_reward(follower_x_rep, follower_y_rep, incorrect_positions_x, incorrect_positions_y) * discount_factor).item()
 
         return rewards
 
