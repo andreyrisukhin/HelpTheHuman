@@ -1,8 +1,21 @@
 import numpy as np
 from fire import Fire
 
-from color_maze import ColorMaze, IDs
+from color_maze import ColorMaze, IDs, Colors
 
+# goal_string = f'{colors.IDs(goal_idx)}{goal_idx}{colors.DEFAULT'
+
+# Function to print text with color based on the goal index
+def print_goal_with_color(goal_idx):
+    if goal_idx == IDs.RED.value:
+        color = Colors.RED
+    elif goal_idx == IDs.BLUE.value:
+        color = Colors.BLUE
+    elif goal_idx == IDs.GREEN.value:
+        color = Colors.GREEN
+    else:
+        color = Colors.DEFAULT  # Default color if goal index doesn't match known colors
+    return color + str(IDs(goal_idx).name) + Colors.DEFAULT
 
 def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = None):
     assert trajectory.ndim == 4  # (minibatch_step, channel, height, width) 
@@ -14,10 +27,11 @@ def replay_trajectory(trajectory: np.ndarray, goal_info: np.ndarray | None = Non
         obs = trajectory[step]
         print(f"Step {step}:")
         env.set_state_to_observation(obs)
-        env.render()
         if goal_info is not None:
             goal_idx = np.argmax(goal_info[step])
-            print(f'Current goal: {IDs(goal_idx)}')
+            env.set_goal_block(IDs(goal_idx))
+            env.render()
+            print(f'Current goal: {print_goal_with_color(goal_idx)}')
         input("Press any key to continue:")
 
 

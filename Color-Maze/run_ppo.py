@@ -390,12 +390,8 @@ def train(
         # Frozen expert leader params
         frozen_leader: bool = False,
         # Block reward parameters
-        red_reward_mean: float = 1.0,
-        blue_reward_mean: float = 1.0,
-        green_reward_mean: float = 1.0,
-        red_reward_var: float = 1.0,
-        blue_reward_var: float = 1.0,
-        green_reward_var: float = 1.0,
+        positive_reward: float = 1.0,  # Reward for correct pickup
+        negative_reward: float = -1.0,  # Reward for incorrect pickup
         # Env params
         block_density: float = 0.05,  # Density of blocks populating the environment grid.
         no_block_penalty_until: int = 0,  # The timestep until which block penalty is 0
@@ -451,35 +447,9 @@ def train(
     if reward_shaping_func:
         reward_shaping_cls = ColorMazeRewards(close_threshold=reward_shaping_close_threshold, penalty=reward_shaping_penalty)
         reward_shaping = getattr(reward_shaping_cls, reward_shaping_func)
-        envs = [ColorMaze(
-            leader_only=leader_only,
-            block_density=block_density,
-            asymmetric=asymmetric,
-            reward_shaping_fns=[reward_shaping],
-            block_swap_prob=block_swap_prob,
-            device=DEVICE,
-            red_reward_mean=red_reward_mean,
-            blue_reward_mean=blue_reward_mean,
-            green_reward_mean=green_reward_mean,
-            red_reward_var=red_reward_var,
-            blue_reward_var=blue_reward_var,
-            green_reward_var=green_reward_var,
-            is_unique_hemispheres_env=use_hemisphere
-        ) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, reward_shaping_fns=[reward_shaping], block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward, is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
     else:
-        envs = [ColorMaze(
-            leader_only=leader_only,
-            block_density=block_density,
-            asymmetric=asymmetric,
-            block_swap_prob=block_swap_prob,
-            device=DEVICE,
-            red_reward_mean=red_reward_mean,
-            blue_reward_mean=blue_reward_mean,
-            green_reward_mean=green_reward_mean,
-            red_reward_var=red_reward_var,
-            blue_reward_var=blue_reward_var,
-            green_reward_var=green_reward_var,
-            is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
+        envs = [ColorMaze(leader_only=leader_only, block_density=block_density, asymmetric=asymmetric, block_swap_prob=block_swap_prob, device=DEVICE, positive_reward=positive_reward, negative_reward=negative_reward, is_unique_hemispheres_env=use_hemisphere) for _ in range(num_envs)]
 
     if torch.cuda.device_count() > 1:
         model_devices = {

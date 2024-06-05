@@ -1,35 +1,13 @@
 # Help the Human
 
-## Running the Repo
-Use Python 3.12 (Dataclasses).
+## Working Code:
+Color-Maze/
 
-Create an environment from the requirements.txt using
-```{python}
-pip install -r requirements.txt
-```
-To update the requirements.txt after you added an import, use
-```{python}
-pip freeze > requirements.txt
-```
+- color_maze.py
+- run_ppo.py
+- manual_policy.py
+- run_manual.py
 
-Debug without logging:
-```{bash}
-python run_ppo.py --log_to_wandb=False
-```
+Other files are under development and are not guaranteed to work.
 
-## Citation for PettingZoo
-
-https://pettingzoo.farama.org/tutorials/custom_environment/1-project-structure/
-
-To cite PettingZoo in publication, please use
-
-```
-@article{terry2021pettingzoo,
-  title={Pettingzoo: Gym for multi-agent reinforcement learning},
-  author={Terry, J and Black, Benjamin and Grammel, Nathaniel and Jayakumar, Mario and Hari, Ananth and Sullivan, Ryan and Santos, Luis S and Dieffendahl, Clemens and Horsch, Caroline and Perez-Vicente, Rodrigo and others},
-  journal={Advances in Neural Information Processing Systems},
-  volume={34},
-  pages={15032--15043},
-  year={2021}
-}
-```
+Our best leader checkpoint is [here](https://drive.google.com/file/d/1I1tXXkG3BAP9SraG0oY3uooUVqbuNkOb/view?usp=drive_link), which uses the LSTM variant of our architecture.
