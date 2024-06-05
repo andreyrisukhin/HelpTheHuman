@@ -10,6 +10,7 @@ from fire import Fire
 from tqdm import tqdm
 import os
 from pettingzoo import ParallelEnv
+from a_star_policy import AStarAgent
 
 from color_maze import ColorMaze, ColorMazeRewards, NUM_COLORS
 
@@ -137,6 +138,7 @@ def step(
         models: Mapping[str, ActorCritic],
         optimizers: Mapping[str, optim.Optimizer],
         num_steps: int,
+        num_envs: int,
         batch_size: int,
         minibatch_size: int,
         gamma: float,
@@ -154,6 +156,7 @@ def step(
         block_penalty_coef: float,
         sampling_temperature: float = 1.0,
         goalinfo_loss_coef: float = 0,
+        astar_leader: bool = False
 ) -> Tuple[dict[str, StepData], int]:
     """
     Implementation is based on https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo.py and adapted for multi-agent
@@ -223,23 +226,32 @@ def step(
             all_dones[agent][step] = next_dones[agent]
 
             with torch.no_grad():
-                action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
-                    next_observations[agent],
-                    next_goal_info[agent],
-                    prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
-                    sampling_temperature=sampling_temperature
-                )
-                step_actions[agent] = action.cpu().numpy()
-                lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
-                lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
+                if agent == "leader" and astar_leader:
+                    action = torch.zeros(num_envs)
+                    for i, env in enumerate(envs): # todo: vectorize this
+                        astar_agent = AStarAgent(env.goal_block)
+                        action[i] = astar_agent(env, env.leader)
+                    
+                    step_actions[agent] = action.cpu().numpy()
+                else:
+                    action, logprob, entropy, value, goalinfo_logits, (hidden_states, cell_states) = model.get_action_and_value(
+                        next_observations[agent],
+                        next_goal_info[agent],
+                        prev_hidden_and_cell_states=(lstm_hidden_states[agent][step], lstm_cell_states[agent][step]),
+                        sampling_temperature=sampling_temperature
+                    )
+                    step_actions[agent] = action.cpu().numpy()
+                    lstm_hidden_states[agent][step + 1] = hidden_states  # step + 1 so that indexing by step gives the *input* states at that step
+                    lstm_cell_states[agent][step + 1] = cell_states  # step + 1 so that indexing by step gives the *input* states at that step
+
+                    all_logprobs[agent][step] = logprob
+                    all_values[agent][step] = value.flatten()
+                    all_entropies[agent][step] = entropy.flatten().cpu().numpy()
 
                 all_actions[agent][step] = action
-                all_logprobs[agent][step] = logprob
-                all_values[agent][step] = value.flatten()
-                all_entropies[agent][step] = entropy.flatten().cpu().numpy()
 
         # Convert step_actions from dict of lists to list of dicts
-        step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
+        step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(num_envs)]
 
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
         
@@ -389,6 +401,7 @@ def train(
         compile: bool = False,  # If True, uses torch.compile. May not be supported in all environments.
         # Frozen expert leader params
         frozen_leader: bool = False,
+        astar_leader: bool = False,
         # Block reward parameters
         positive_reward: float = 1.0,  # Reward for correct pickup
         negative_reward: float = -1.0,  # Reward for incorrect pickup
@@ -436,6 +449,9 @@ def train(
         wandb.init(entity='kavel', project='help-the-human', name=run_name, resume=('must' if resume_wandb_id else False), id=resume_wandb_id)
     os.makedirs(f'results/{run_name}', exist_ok=True)
 
+    if astar_leader:
+        assert frozen_leader == True, "Leader must be frozen when using A* leader."
+
     torch.manual_seed(seed)
     env_seeds = [seed + i for i in range(num_envs)]
 
@@ -465,8 +481,10 @@ def train(
     # Observation and action spaces are the same for leader and follower
     act_space = envs[0].action_space
     leader_obs_space = envs[0].observation_spaces['leader']
+
     leader = ActorCritic(leader_obs_space['observation'], act_space, model_devices['leader'], use_lstm=use_lstm)  # type: ignore
     leader_optimizer = optim.Adam(leader.parameters(), lr=learning_rate, eps=1e-5)
+
     if leader_only:
         models = {'leader': leader}
         optimizers = {'leader': leader_optimizer}
@@ -554,6 +572,7 @@ def train(
             models=models,
             optimizers=optimizers,
             num_steps=num_steps_per_rollout,
+            num_envs=num_envs,
             batch_size=batch_size,
             minibatch_size=minibatch_size,
             gamma=gamma,
@@ -570,7 +589,8 @@ def train(
             block_penalty_coef=block_penalty_coef,
             sampling_temperature=sampling_temperature,
             goalinfo_loss_coef=goalinfo_loss_coef,
-            training_agents=training_agents
+            training_agents=training_agents,
+            astar_leader=astar_leader
         )
 
         metrics = {}
@@ -628,3 +648,4 @@ def train(
 
 if __name__ == '__main__':
     Fire(train)
+    
