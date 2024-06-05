@@ -2,51 +2,47 @@ import heapq
 import numpy as np
 # from color_maze import Moves, IDs
 import color_maze
-import torch
+# import torch
 
 def heuristic(agent_pos, goal_pos):
-        """
-        Manhattan distance as the heuristic function
-        """
-        return torch.sum(torch.abs(agent_pos - goal_pos), dim=-1)
-        
+    """
+    Manhattan distance as the heuristic function
+    """
+    agent_pos = np.array(agent_pos)
+    goal_pos = np.array(goal_pos)
+    return np.sum(np.abs(agent_pos - goal_pos))
+
 def a_star_search(env, agent):
     """
     Performs A* search to find the shortest path for the leader to the closest correct block
     """
-    blocks = env.blocks
-    start_pos = torch.tensor([agent.x, agent.y], device=env.device)
-    # print(start_pos)
+    blocks = env.blocks.cpu()
+    start_pos = (agent.x, agent.y)
     goal_block = env.goal_block.value
-    goal_positions = torch.nonzero(blocks[goal_block] == 1, as_tuple=True)
-    # breakpoint()
-    
+    goal_positions = [(x, y) for x, y in zip(*np.where(blocks[goal_block] == 1))]
+
     # Inv: There should always be correct blocks
-    if len(goal_positions[0]) == 0:
+    if not goal_positions:
         assert False, "No correct blocks found"
 
     # Calculate the closest correct block to the leader
-    goal_positions_tensor = torch.stack(goal_positions, dim=1)
-    goal_dists = heuristic(start_pos.repeat(goal_positions_tensor.shape[0], 1), goal_positions_tensor)
-    closest_goal_idx = torch.argmin(goal_dists)
-    goal_pos = goal_positions_tensor[closest_goal_idx]
-    # convert goal_pos to tuple
-    # target = tuple(goal_pos.tolist())
+    goal_dists = np.array([heuristic(start_pos, goal_pos) for goal_pos in goal_positions])
+    closest_goal_idx = np.argmin(goal_dists)
+    goal_pos = goal_positions[closest_goal_idx]
 
     # Initialize the open and closed sets
-    open_set = [(0 + heuristic(start_pos, goal_pos).item(), start_pos.tolist(), [])]
+    open_set = [(0 + heuristic(start_pos, goal_pos), start_pos, [])]
     heapq.heapify(open_set)
     closed_set = set()
 
     # Loop until the open set is empty or the goal is reached
     while open_set:
         current_cost, current_pos, current_path = heapq.heappop(open_set)
-
         # If the goal is reached, return the path
-        if current_pos == list(goal_pos.tolist()):
+        if current_pos == goal_pos:
             return current_path
 
-        closed_set.add(tuple(current_pos))
+        closed_set.add(current_pos)
 
         # Generate the neighbors
         neighbors = [
@@ -57,34 +53,34 @@ def a_star_search(env, agent):
         ]
 
         for neighbor in neighbors:
-            neighbor_pos = torch.tensor(neighbor, dtype=torch.long, device=env.device)
             # Check if the neighbor is within the boundaries and not a wall
-            if agent.is_legal(neighbor_pos[0].item(), neighbor_pos[1].item()):
-                
-                # if neighbor_pos isn't a goal block, penalize
+            if agent.is_legal(neighbor[0], neighbor[1]):
+                # if neighbor isn't a goal block, penalize
                 penalize = False
-                for penalty_color in set((color_maze.IDs.BLUE, color_maze.IDs.RED, color_maze.IDs.GREEN)) - set((env.goal_block, )):
-                    if blocks[penalty_color.value][neighbor_pos[0], neighbor_pos[1]] == 1:
+                for penalty_color in set((color_maze.IDs.BLUE, color_maze.IDs.RED, color_maze.IDs.GREEN)) - set((env.goal_block,)):
+                    if blocks[penalty_color.value][neighbor[0]][neighbor[1]] == 1:
                         new_cost = 999999
                         penalize = True
-                    
+
                 if not penalize:
-                    new_cost = current_cost - heuristic(torch.tensor(current_pos, device=env.device), goal_pos).item() + 1 + heuristic(neighbor_pos, goal_pos).item()
-                new_path = current_path + [tuple(neighbor_pos.tolist())]
+                    new_cost = current_cost - heuristic(current_pos, goal_pos) + 1 + heuristic(neighbor, goal_pos)
+
+                new_path = current_path + [neighbor]
 
                 # Check if the neighbor is in the closed set or the open set
-                if tuple(neighbor_pos.tolist()) in closed_set:
+                if neighbor in closed_set:
                     continue
+
                 in_open_set = False
                 for idx, entry in enumerate(open_set):
-                    if entry[1] == neighbor_pos.tolist():
+                    if entry[1] == neighbor:
                         in_open_set = True
                         if entry[0] > new_cost:
-                            open_set[idx] = (new_cost, neighbor_pos.tolist(), new_path)
+                            open_set[idx] = (new_cost, neighbor, new_path)
                         break
 
                 if not in_open_set:
-                    heapq.heappush(open_set, (new_cost, neighbor_pos.tolist(), new_path))
+                    heapq.heappush(open_set, (new_cost, neighbor, new_path))
 
     # Inv: Path should never be empty
     assert False, "No path found"
@@ -105,37 +101,49 @@ class AStarAgent:
     "Uses A* search to find the shortest path to the closest correct block for the leader."
     def __init__(self, initial_goal_block_color=None):
         self.goal_block_color = initial_goal_block_color
+        # self.path = None
         
     def __call__(self, env, agent):         
         cur_pos = agent.x, agent.y
-        if self.goal_block_color == None:
-            # check if the surrounding blocks are empty
-            blocks = env.blocks
+        
+        # Note: only used for copy-follower
+        # if self.goal_block_color == None:
+        #     blocks = env.blocks
             
-            neighbors = [
-                (cur_pos[0], cur_pos[1] + 1),
-                (cur_pos[0], cur_pos[1] - 1),
-                (cur_pos[0] + 1, cur_pos[1]),
-                (cur_pos[0] - 1, cur_pos[1]),
-            ]
+        #     neighbors = [
+        #         (cur_pos[0], cur_pos[1] + 1),
+        #         (cur_pos[0], cur_pos[1] - 1),
+        #         (cur_pos[0] + 1, cur_pos[1]),
+        #         (cur_pos[0] - 1, cur_pos[1]),
+        #     ]
 
-            for neighbor in neighbors:
-                neighbor_pos = torch.tensor(neighbor, dtype=torch.long, device=env.device)
-                # Check if the neighbor is within the boundaries and not a wall
-                if agent.is_legal(neighbor_pos[0].item(), neighbor_pos[1].item()):
-                    # Check if neighbor is an empty cell
-                    neighbor_is_empty = True
-                    for block_id in color_maze.IDs.RED, color_maze.IDs.BLUE, color_maze.IDs.GREEN:
-                        if blocks[block_id.value][neighbor_pos[0], neighbor_pos[1]] == 1:
-                            neighbor_is_empty = False
-                            break
+        #     for neighbor in neighbors:
+        #         neighbor_pos = torch.tensor(neighbor, dtype=torch.long, device=env.device)
+        #         # Check if the neighbor is within the boundaries
+        #         if agent.is_legal(neighbor_pos[0].item(), neighbor_pos[1].item()):
+        #             # Check if neighbor is an empty cell
+        #             neighbor_is_empty = True
+        #             for block_id in color_maze.IDs.RED, color_maze.IDs.BLUE, color_maze.IDs.GREEN:
+        #                 if blocks[block_id.value][neighbor_pos[0], neighbor_pos[1]] == 1:
+        #                     neighbor_is_empty = False
+        #                     break
 
-                    if neighbor_is_empty:
-                        return get_move(cur_pos, neighbor_pos)
+        #             if neighbor_is_empty:
+        #                 return get_move(cur_pos, neighbor_pos)
                 
-            # random move if all four neighbors are not empty
-            return np.random.choice([color_maze.Moves.UP.value, color_maze.Moves.DOWN.value, color_maze.Moves.LEFT.value, color_maze.Moves.RIGHT.value])
+        #     # random move if all four neighbors are not empty
+        #     return np.random.choice([color_maze.Moves.UP.value, color_maze.Moves.DOWN.value, color_maze.Moves.LEFT.value, color_maze.Moves.RIGHT.value])
+        
+        # if the path is empty or the goal color just switched or the agent just collected a block
+        # Note: Below code doesn't work
+        # if not self.path or self.env.goal_block != self.env.goal_block_prev or self.env.leader.collected_block:
+        #     blocks = self.env.blocks
+        #     self.path = self.a_star_search(self.env, blocks)
+        #     self.env.goal_block_prev = self.env.goal_block
+            
+        #     blocks = self.env.blocks
+        #     self.path = self.a_star_search(self.env, blocks)
+        #     assert self.path, "No path found"
         
         next_cell = a_star_search(env, agent)[0] # we only need the next step to move
-        # TODO for later: only run a_star_search if the goal color just switched or a block was just picked up
         return get_move(cur_pos, next_cell)
