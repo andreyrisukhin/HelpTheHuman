@@ -1,8 +1,6 @@
 import heapq
 import numpy as np
-# from color_maze import Moves, IDs
 import color_maze
-# import torch
 
 def heuristic(agent_pos, goal_pos):
     """
@@ -16,14 +14,10 @@ def a_star_search(env, agent):
     """
     Performs A* search to find the shortest path for the leader to the closest correct block
     """
-    blocks = env.blocks.cpu()
+    blocks = env.blocks.cpu()  # only tensor to numpy conversion
     start_pos = (agent.x, agent.y)
     goal_block = env.goal_block.value
     goal_positions = [(x, y) for x, y in zip(*np.where(blocks[goal_block] == 1))]
-
-    # Inv: There should always be correct blocks
-    if not goal_positions:
-        assert False, "No correct blocks found"
 
     # Calculate the closest correct block to the leader
     goal_dists = np.array([heuristic(start_pos, goal_pos) for goal_pos in goal_positions])
@@ -53,7 +47,7 @@ def a_star_search(env, agent):
         ]
 
         for neighbor in neighbors:
-            # Check if the neighbor is within the boundaries and not a wall
+            # Check if the neighbor is within the boundaries
             if agent.is_legal(neighbor[0], neighbor[1]):
                 # if neighbor isn't a goal block, penalize
                 penalize = False
@@ -67,7 +61,6 @@ def a_star_search(env, agent):
 
                 new_path = current_path + [neighbor]
 
-                # Check if the neighbor is in the closed set or the open set
                 if neighbor in closed_set:
                     continue
 
@@ -81,9 +74,6 @@ def a_star_search(env, agent):
 
                 if not in_open_set:
                     heapq.heappush(open_set, (new_cost, neighbor, new_path))
-
-    # Inv: Path should never be empty
-    assert False, "No path found"
     
 def get_move(cur_pos, next_cell):
     x1, y1 = cur_pos
@@ -98,15 +88,16 @@ def get_move(cur_pos, next_cell):
         return color_maze.Moves.DOWN.value
 
 class AStarAgent:
-    "Uses A* search to find the shortest path to the closest correct block for the leader."
-    def __init__(self, initial_goal_block_color=None):
-        self.goal_block_color = initial_goal_block_color
-        # self.path = None
+    "Uses A* search to find the shortest path to the closest correct block."
+    def __init__(self, goal_block):
+        self.goal_block = goal_block
+        self.path = None
         
     def __call__(self, env, agent):         
         cur_pos = agent.x, agent.y
         
-        # Note: only used for copy-follower
+        # Note: only used for copy-follower. Commented out for simplicity but
+        # for completeness will need to be added back and untensorized
         # if self.goal_block_color == None:
         #     blocks = env.blocks
             
@@ -134,16 +125,11 @@ class AStarAgent:
         #     # random move if all four neighbors are not empty
         #     return np.random.choice([color_maze.Moves.UP.value, color_maze.Moves.DOWN.value, color_maze.Moves.LEFT.value, color_maze.Moves.RIGHT.value])
         
-        # if the path is empty or the goal color just switched or the agent just collected a block
-        # Note: Below code doesn't work
-        # if not self.path or self.env.goal_block != self.env.goal_block_prev or self.env.leader.collected_block:
-        #     blocks = self.env.blocks
-        #     self.path = self.a_star_search(self.env, blocks)
-        #     self.env.goal_block_prev = self.env.goal_block
-            
-        #     blocks = self.env.blocks
-        #     self.path = self.a_star_search(self.env, blocks)
-        #     assert self.path, "No path found"
+        # we need to re-search if the goal color switched or a block was collected
+        if self.goal_block != env.goal_block or env.blocks[self.goal_block.value][self.path[-1][0], self.path[-1][1]] == 0:
+            self.path = a_star_search(agent, env)
+            self.goal_block = env.goal_block
         
-        next_cell = a_star_search(env, agent)[0] # we only need the next step to move
+        next_cell = self.path[0] # we only need the next step to move
+        self.path = self.path[1:]
         return get_move(cur_pos, next_cell)

@@ -473,7 +473,7 @@ class ColorMaze(ParallelEnv):
 
         if (self.agents == []):
             assert False
-        terminateds = {a: termination for a in self.agents}        
+        terminateds = {a: termination for a in self.agents}
         if termination:
             self.agents = []
 

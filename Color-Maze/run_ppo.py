@@ -228,7 +228,7 @@ def step(
             with torch.no_grad():
                 if agent == "leader" and astar_leader:
                     action = torch.zeros(num_envs)
-                    for i, env in enumerate(envs): # todo: vectorize this
+                    for i, env in enumerate(envs): # TODO: vectorize this and potentially 
                         astar_agent = AStarAgent(env.goal_block)
                         action[i] = astar_agent(env, env.leader)
                     
