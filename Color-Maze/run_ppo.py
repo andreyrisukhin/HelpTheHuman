@@ -27,6 +27,8 @@ class StepData:
     loss: float
     explained_var: float
     goal_info: torch.Tensor
+    collected_blocks_goal: bool
+    collected_blocks_incorrect: bool
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -191,6 +193,8 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_entropies = {agent: np.zeros((num_steps, len(envs))) for agent in models}
+    all_collect_blocks_goal = {agent: 0 for agent in models}
+    all_collect_blocks_incorrect = {agent: 0 for agent in models}
 
     # num_steps + 1 so that indexing by step gives the *input* states at that step
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
@@ -241,7 +245,7 @@ def step(
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
-        next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)]))
+        next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)])) # TODO this is where block pickup tracking comes from
         
         next_observations = {agent: torch.stack([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
@@ -372,6 +376,8 @@ def step(
             values=all_values[agent].cpu(),
             loss=acc_losses[agent] / ppo_update_epochs,
             explained_var=explained_var[agent],
+            collected_blocks_goal=False,
+            collected_blocks_incorrect=False,
         )
         for agent in models
     }
@@ -431,7 +437,8 @@ def train(
 ):
     assert positive_reward >= 0, "Positive reward must be nonnegative."
     assert negative_reward <= 0, "Negative reward must be nonpositive." # TODO can experiment with this later, for now adding asserts due to errors in using negative rewards.
-    
+    # todo rename to 'reward correct' and 'reward incorrect', clearer wrt sign error.
+
     if resume_iter:
         assert resume_wandb_id is not None, "Must provide W&B ID to resume from checkpoint"
 
@@ -586,6 +593,8 @@ def train(
                 'positive_individual_reward': (results.individual_rewards > 0).sum(axis=0).mean(),
                 'shared_reward': results.shared_rewards.sum(axis=0).mean(),
                 'action_entropy': results.action_entropies.mean()
+                'collected_goal_blocks': False,
+                'collected_incorrect_blocks': False,
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
