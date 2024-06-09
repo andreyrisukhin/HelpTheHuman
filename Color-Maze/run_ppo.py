@@ -595,9 +595,9 @@ def train(
                 'individual_reward': results.individual_rewards.sum(axis=0).mean(),
                 'positive_individual_reward': (results.individual_rewards > 0).sum(axis=0).mean(),
                 'shared_reward': results.shared_rewards.sum(axis=0).mean(),
-                'action_entropy': results.action_entropies.mean()
-                'collected_goal_blocks': False,
-                'collected_incorrect_blocks': False,
+                'action_entropy': results.action_entropies.mean(),
+                'collected_goal_blocks': results.collected_blocks_goal.sum(dim=0).mean(),
+                'collected_incorrect_blocks': results.collected_blocks_incorrect.sum(dim=0).mean(),
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
