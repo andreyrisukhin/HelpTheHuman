@@ -27,8 +27,8 @@ class StepData:
     loss: float
     explained_var: float
     goal_info: torch.Tensor
-    collected_blocks_goal: bool
-    collected_blocks_incorrect: bool
+    collected_blocks_goal: torch.Tensor # 0 or 1 # TODO update to bool?
+    collected_blocks_incorrect: torch.Tensor # 0 or 1
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -193,8 +193,8 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_entropies = {agent: np.zeros((num_steps, len(envs))) for agent in models}
-    all_collect_blocks_goal = {agent: 0 for agent in models}
-    all_collect_blocks_incorrect = {agent: 0 for agent in models}
+    all_collect_blocks_goal = {agent: torch.zeros((num_steps, len(envs))) for agent in models} # Use {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
+    all_collect_blocks_incorrect = {agent: torch.zeros((num_steps, len(envs))) for agent in models}
 
     # num_steps + 1 so that indexing by step gives the *input* states at that step
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
@@ -245,7 +245,8 @@ def step(
         # Convert step_actions from dict of lists to list of dicts
         step_actions = [{agent: step_actions[agent][i] for agent in step_actions} for i in range(len(step_actions[list(models.keys())[0]]))]
 
-        next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)])) # TODO this is where block pickup tracking comes from
+        # Step the environment, and return results.
+        next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts, blocks_collected_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)])) # TODO this is where block pickup tracking comes from
         
         next_observations = {agent: torch.stack([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
@@ -257,12 +258,17 @@ def step(
             all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
             all_shared_rewards[agent][step] = next_shared_rewards[agent].reshape(-1)
 
+        next_collected_blocks_goal = {agent: torch.tensor(blocks_collected_dicts[agent]["goal"]).to(models[agent].device) for agent in models}
+        next_collected_blocks_incorrect = {agent: torch.tensor(blocks_collected_dicts[agent]["incorrect"]).to(models[agent].device) for agent in models}
+
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
 
         # Convert to tensors
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
+
+        # Dict[str, Tensor]
 
     explained_var = {}
     acc_losses = {agent: 0 for agent in models}
@@ -376,8 +382,8 @@ def step(
             values=all_values[agent].cpu(),
             loss=acc_losses[agent] / ppo_update_epochs,
             explained_var=explained_var[agent],
-            collected_blocks_goal=False,
-            collected_blocks_incorrect=False,
+            collected_blocks_goal=False, # Dict[str, Tensor] {"leader": Tensor(num_steps, len(envs)), "follower": Tensor(num_steps, len(envs))} 
+            collected_blocks_incorrect=False, # Dict[str, Tensor] {"leader": Tensor(num_steps, len(envs)), "follower": Tensor(num_steps, len(envs))} 
         )
         for agent in models
     }

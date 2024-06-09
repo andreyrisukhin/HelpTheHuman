@@ -65,8 +65,8 @@ class Agent:
     y_limit_low: int
     y_limit_high: int
 
-    collected_blocks_goal: int = 0
-    collected_blocks_incorrect: int = 0
+    # collected_blocks_goal: int = 0
+    # collected_blocks_incorrect: int = 0
 
     def is_legal(self, x:int, y:int) -> bool:
         '''Check if the agent is within the (inclusive!) bounds of the environment.'''
@@ -435,6 +435,8 @@ class ColorMaze(ParallelEnv):
             follower_action = actions["follower"]
             self.follower.x, self.follower.y = _move(self.follower.x, self.follower.y, follower_action, self.follower)
 
+        blocks_collected = {agent: {"goal": 0, "incorrect": 0} for agent in self.agents}
+
         # Give rewards
         individual_rewards = {}
         shared_reward = 0
@@ -447,22 +449,14 @@ class ColorMaze(ParallelEnv):
                 shared_reward += self.positive_reward
                 individual_rewards[agent] += self.positive_reward
                 self._consume_and_spawn_block(self.goal_block.value, x, y, self.blocks)
-                if agent == "leader": # TODO clean this up with a dict
-                    self.leader.collected_blocks_goal += 1
-                elif agent == "follower":
-                    self.follower.collected_blocks_goal += 1
-
+                blocks_collected[agent]["goal"] += 1
             else:
                 for non_reward_block_idx in [i for i in range(self.blocks.shape[0]) if i != self.goal_block.value]:
                     if self.blocks[non_reward_block_idx, x, y]:
                         shared_reward += self.negative_reward * self.block_penalty_coef
                         individual_rewards[agent] += self.negative_reward * self.block_penalty_coef
                         self._consume_and_spawn_block(non_reward_block_idx, x, y, self.blocks)
-                        if agent == "leader":
-                            self.leader.collected_blocks_incorrect += 1
-                        elif agent == "follower":
-                            self.follower.collected_blocks_incorrect += 1 # TODO AR, this was premature optimization. Instead, do return the full tensor of 0s and 1s and just sum it to get total. This way, consistent with prior code, AND we get the sequence of actions for each env. 
-
+                        blocks_collected[agent]["incorrect"] += 1
                         break  # Can't step on two non-rewarding blocks at once
 
         rewards = {agent: shared_reward for agent in self.agents}
@@ -500,7 +494,7 @@ class ColorMaze(ParallelEnv):
             assert False
 
         # Maybe update goal block
-        self.goal_switched = False
+        self.goal_switched = False # TODO what is this doing? unclear
         self._maybe_randomize_goal_block()
 
         observation = self._convert_to_observation(self.blocks)
@@ -526,7 +520,7 @@ class ColorMaze(ParallelEnv):
                 }
             }
         truncateds = terminateds
-        return observations, individual_rewards, terminateds, truncateds, infos
+        return observations, individual_rewards, terminateds, truncateds, infos, blocks_collected
 
     # def render(self):
     #     """Render the environment."""
