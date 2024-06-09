@@ -193,8 +193,8 @@ def step(
     all_dones = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_values = {agent: torch.zeros((num_steps, len(envs))).to(models[agent].device) for agent in models}
     all_entropies = {agent: np.zeros((num_steps, len(envs))) for agent in models}
-    all_collect_blocks_goal = {agent: torch.zeros((num_steps, len(envs))) for agent in models} # Use {agent: torch.zeros((num_steps, len(envs)) + observation_space_shapes[agent]).to(models[agent].device) for agent in models}  # shape: (128, 4) + (5, 32, 32) -> (128, 4, 5, 32, 32)
-    all_collect_blocks_incorrect = {agent: torch.zeros((num_steps, len(envs))) for agent in models}
+    all_collect_blocks_goal = {agent: torch.zeros((num_steps, len(envs))) for agent in models} 
+    all_collect_blocks_incorrect = {agent: torch.zeros((num_steps, len(envs))) for agent in models} # "Did agent collect a bad block? 0 or 1 for each step, for each env"
 
     # num_steps + 1 so that indexing by step gives the *input* states at that step
     lstm_hidden_states = {agent: torch.zeros((num_steps + 1, len(envs), models[agent].hidden_size)).to(models[agent].device) for agent in models}
@@ -257,9 +257,8 @@ def step(
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(models[agent].device).view(-1)
             all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
             all_shared_rewards[agent][step] = next_shared_rewards[agent].reshape(-1)
-
-        next_collected_blocks_goal = {agent: torch.tensor(blocks_collected_dicts[agent]["goal"]).to(models[agent].device) for agent in models}
-        next_collected_blocks_incorrect = {agent: torch.tensor(blocks_collected_dicts[agent]["incorrect"]).to(models[agent].device) for agent in models}
+            all_collect_blocks_goal[agent][step] = torch.tensor(blocks_collected_dicts[agent]["goal"]).to(models[agent].device)
+            all_collect_blocks_incorrect[agent][step] = torch.tensor(blocks_collected_dicts[agent]["incorrect"]).to(models[agent].device)
 
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
@@ -267,8 +266,6 @@ def step(
         # Convert to tensors
         next_goal_info = {agent: torch.tensor(next_goal_info[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
         next_dones = {agent: torch.tensor(next_dones[agent], dtype=torch.float32).to(models[agent].device) for agent in models}
-
-        # Dict[str, Tensor]
 
     explained_var = {}
     acc_losses = {agent: 0 for agent in models}
@@ -382,8 +379,8 @@ def step(
             values=all_values[agent].cpu(),
             loss=acc_losses[agent] / ppo_update_epochs,
             explained_var=explained_var[agent],
-            collected_blocks_goal=False, # Dict[str, Tensor] {"leader": Tensor(num_steps, len(envs)), "follower": Tensor(num_steps, len(envs))} 
-            collected_blocks_incorrect=False, # Dict[str, Tensor] {"leader": Tensor(num_steps, len(envs)), "follower": Tensor(num_steps, len(envs))} 
+            collected_blocks_goal=all_collect_blocks_goal[agent], # Dict[str, Tensor] {"leader": Tensor(num_steps, len(envs)), "follower": Tensor(num_steps, len(envs))} 
+            collected_blocks_incorrect=all_collect_blocks_incorrect[agent], # Dict[str, Tensor] {"leader": Tensor(num_steps, len(envs)), "follower": Tensor(num_steps, len(envs))} 
         )
         for agent in models
     }
