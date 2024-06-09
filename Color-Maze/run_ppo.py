@@ -248,6 +248,8 @@ def step(
         # Step the environment, and return results.
         next_observation_dicts, reward_dicts, terminated_dicts, truncation_dicts, info_dicts, blocks_collected_dicts = list(zip(*[env.step(step_actions[i]) for i, env in enumerate(envs)])) # TODO this is where block pickup tracking comes from
         
+        
+        
         next_observations = {agent: torch.stack([obs_dict[agent]['observation'] for obs_dict in next_observation_dicts]) for agent in models}
         next_goal_info = {agent: np.array([obs_dict[agent]['goal_info'] for obs_dict in next_observation_dicts]) for agent in models}
         rewards = {agent: np.array([reward_dict[agent] for reward_dict in reward_dicts]) for agent in models}
@@ -257,8 +259,11 @@ def step(
             all_rewards[agent][step] = torch.tensor(rewards[agent]).to(models[agent].device).view(-1)
             all_individual_rewards[agent][step] = next_individual_rewards[agent].reshape(-1)
             all_shared_rewards[agent][step] = next_shared_rewards[agent].reshape(-1)
-            all_collect_blocks_goal[agent][step] = torch.tensor(blocks_collected_dicts[agent]["goal"]).to(models[agent].device)
-            all_collect_blocks_incorrect[agent][step] = torch.tensor(blocks_collected_dicts[agent]["incorrect"]).to(models[agent].device)
+            
+            # blocks_collected_dict is 1 at a time. Append the latest value to appropriate tracker.
+            all_collect_blocks_goal[agent][step] = torch.tensor([bloc_dict[agent]["goal"] for bloc_dict in blocks_collected_dicts]).to(models[agent].device)
+            all_collect_blocks_incorrect[agent][step] = torch.tensor([bloc_dict[agent]["incorrect"] for bloc_dict in blocks_collected_dicts]).to(models[agent].device)
+            # TODO ensure we're appending correctly
 
         next_dones = {agent: np.logical_or([int(terminated[agent]) for terminated in terminated_dicts], [int(truncated[agent]) for truncated in truncation_dicts]) for agent in models}
         num_goals_switched = sum(env.goal_switched for env in envs) # type: ignore
@@ -598,6 +603,7 @@ def train(
                 'action_entropy': results.action_entropies.mean(),
                 'collected_goal_blocks': results.collected_blocks_goal.sum(dim=0).mean(),
                 'collected_incorrect_blocks': results.collected_blocks_incorrect.sum(dim=0).mean(),
+                # 'goal_value': results.goal_info.sum(dim=0).mean(), This is meaningless, avg would only show. We want specific times of switch and the blocks at those times. We can write an eval script to run checkpoints and compare. 
             }
         metrics['timesteps'] = (iteration + 1) * batch_size
         metrics['num_goals_switched'] = num_goals_switched
