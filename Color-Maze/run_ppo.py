@@ -444,8 +444,9 @@ def train(
         seed: int = 42,  # Random seed
 ):
     assert positive_reward >= 0, "Positive reward must be nonnegative."
-    assert negative_reward <= 0, "Negative reward must be nonpositive." # TODO can experiment with this later, for now adding asserts due to errors in using negative rewards.
+    # assert negative_reward <= 0, "Negative reward must be nonpositive." # TODO can experiment with this later, for now adding asserts due to errors in using negative rewards.
     # todo rename to 'reward correct' and 'reward incorrect', clearer wrt sign error.
+    assert negative_reward >= 0, "Negative reward was previously nonnegative. See if this helps." # TODO we need to clean the code.
 
     if resume_iter:
         assert resume_wandb_id is not None, "Must provide W&B ID to resume from checkpoint"
